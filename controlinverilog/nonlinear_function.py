@@ -58,7 +58,7 @@ class NonlinearFunction(object):
         print('Input format is s(%d,%d)' % (self.iw, self.if_))
         print('Output format is s(%d,%d)' % (self.ow, self.of))
         print('The input range is: %g to %g' % (self.xmin, self.xmax))
-        print('The output range is: %g to %g' % (self.ymin, self.ymax))    
+        print('The output range is: %g to %g' % (self.ymin, self.ymax)) 
         
         
     def print_verilog(self, filename=None):

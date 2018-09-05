@@ -6,9 +6,7 @@ class Decimator(object):
     def __init__(self, freq_in, top, dw):
         
         self.freq_out = freq_in / (top + 1)
-        
-        print('Output sampling frequency (Hz): %g' % self.freq_out)
-        print('Data word length: %d' % dw)
+        self.dw = dw
         
         context = {'TOP': top,
                    'DW': dw}
@@ -18,7 +16,13 @@ class Decimator(object):
         template = env.get_template('decimator.v')
         self.verilog = template.render(context)
         
+    
+    def print_summary(self):
         
+        print('Output sampling frequency (Hz): %g' % self.freq_out)
+        print('Data word length: %d' % self.dw)
+        
+    
     def print_verilog(self, filename=None):
                 
         if filename is None:

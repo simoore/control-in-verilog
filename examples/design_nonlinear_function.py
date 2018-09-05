@@ -8,6 +8,7 @@ k0 = y1 * (x1  + d0) ** 2
 iw = 11
 if_ = 13
 func = lambda x: k0 / (x + d0) ** 2
+
 hdl_nonlinear = NonlinearFunction(func, iw, if_)
 hdl_nonlinear.print_summary()
-hdl_nonlinear.print_verilog('nonlinear.v')
+hdl_nonlinear.print_verilog('nonlinear_function.v')
