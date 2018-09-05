@@ -1,10 +1,12 @@
+from math import ceil
 import veriloggen as vg
+import string
 
 
 class LtiVerilog:
-    # TODO: add pipelining for the additions.
     
-    def __init__(self, lti):
+    
+    def __init__(self, lti, stages=1):
         """Contructs the verilog code implementing an LTI system. The generated 
         code is output to the console.
         
@@ -12,7 +14,12 @@ class LtiVerilog:
         ----------
         lti : LtiSystem
             The structure containing the parameters of the LTI system.
+        stages : int
+            The length of the pipelined in the adder for the matrix 
+            multiplications.
         """
+        
+        self._stages = stages
         
         # add verilog components
         self.init_statements = []
@@ -52,11 +59,26 @@ class LtiVerilog:
         # add registers to module
         self.ce_mul = self.mod.Reg('ce_mul')
         self.ce_buf = self.mod.Reg('ce_buf')
+        
         self.ureg = self._add_registers(lti.ninputs, 'u', self.sw)
         self.xreg = self._add_registers(lti.order, 'x', self.sw)
         self.x_long = self._add_registers(lti.order, 'x_long', self.rw)
         self.y_long = self._add_registers(lti.noutputs, 'y_long', self.rw)
         self.dx = self._add_registers(lti.order, 'dx', self.rw)
+        
+        # Add pipeline registers.
+        self.ce_add = [None for _ in range(self._stages - 1)]
+        self.dxs = [None for _ in range(self._stages - 1)]
+        self.ylongs = [None for _ in range(self._stages - 1)]
+        ind = list(string.ascii_uppercase)
+        for i in range(self._stages - 1):
+            name1 = ''.join(('ce_add_', ind[i]))
+            self.ce_add[i] = self.mod.Reg(name1)
+            name2 = ''.join(('dx', ind[i], '_'))
+            self.dxs[i] = self._add_registers(lti.order, name2, self.rw)
+            name3 = ''.join(('ylong', ind[i], '_'))
+            self.ylongs[i] = self._add_registers(lti.noutputs, name3, self.rw)
+        
     
         self.ax, self.acof = self._add_matrix(lti.A, 'A', 'ax', self.xreg)
         self.bu, self.bcof = self._add_matrix(lti.B, 'B', 'bu', self.ureg)
@@ -103,8 +125,8 @@ class LtiVerilog:
         u = [[None for _ in range(cols)] for _ in range(rows)]
         for r in range(rows):
             for c in range(cols):
-                n1 = ''.join([par_name, str(r + 1), str(c + 1)])
-                n2 = ''.join([reg_name, str(r + 1), str(c + 1)])
+                n1 = ''.join([par_name, str(r + 1), '_', str(c + 1)])
+                n2 = ''.join([reg_name, str(r + 1), '_', str(c + 1)])
                 val = int(mat[r,c])
                 a[r][c] = self.mod.Parameter(n1, val, signed=True, width=self.cw)
                 u[r][c] = self.mod.Reg(n2, width=self.rw, initval=0, signed=True)
@@ -164,20 +186,44 @@ class LtiVerilog:
         lti : LtiSystem
             The parameters of the LTI system.
         """
+        
+        add_total = (lti.order + lti.ninputs + self._stages - 1) 
+        add_per_stage = ceil(add_total / self._stages)
+        state_stages = [x // (add_per_stage-1) for x in range(lti.order-1)]
+        input_stages = [x // (add_per_stage-1) for x in 
+                        range(lti.order-1, lti.order-1 + lti.ninputs)]
+        ls = self._stages - 1
+        
+        
         # add register
         add_buf = vg.seq.seq.Seq(self.mod, 'addition_buffer', self.clk)
-        add_buf.add(self.ce_out.write(self.ce_mul))
         
-        # for state equation
-        for i in range(lti.order):
-            addition = sum(self.ax[i][1:] + self.bu[i] , self.ax[i][0])
-            add_buf.add(self.dx[i].write(addition))
-    
-        # for output equation
-        for i in range(lti.noutputs):
-            addition = sum(self.cx[i][1:] + self.du[i] , self.cx[i][0])
-            add_buf.add(self.y_long[i].write(addition))
+        for k in range(self._stages):
+            
+            input_ce = self.ce_mul if k == 0 else self.ce_add[k-1]
+            output_ce = self.ce_out if k == ls else self.ce_add[k]
+            add_buf.add(output_ce.write(input_ce))
+            state_ind = [j + 1 for j, s in enumerate(state_stages) if s == k]
+            input_ind = [j for j, s in enumerate(input_stages) if s == k]
+            
+            # For state equation.
+            for i in range(lti.order):
+                state_terms = [self.ax[i][j] for j in state_ind]
+                input_terms = [self.bu[i][j] for j in input_ind] 
+                init_term = self.ax[i][0] if k == 0 else self.dxs[k-1][i]
+                addition = sum(state_terms + input_terms, init_term)
+                reg = self.dx[i] if k == ls else self.dxs[k][i]
+                add_buf.add(reg.write(addition))
         
+            # For output equation.
+            for i in range(lti.noutputs):
+                state_terms = [self.cx[i][j] for j in state_ind]
+                input_terms = [self.du[i][j] for j in input_ind] 
+                init_term = self.cx[i][0] if k == 0 else self.ylongs[k-1][i]
+                addition = sum(state_terms + input_terms, init_term)
+                reg = self.y_long[i] if k == ls else self.ylongs[k][i]
+                add_buf.add(reg.write(addition))
+
         
     def _add_output_assignments(self, lti):
         """Adds the assign statements truncating the LTI system output.
@@ -212,6 +258,10 @@ class LtiVerilog:
         operator.If(self.ce_out).add(statements)   
         
         
-    def print_verilog(self):
-        
-        print(self.verilog)
+    def print_verilog(self, filename=None):
+        if filename is None:
+            print(self.verilog)
+        else:
+            with open(filename, 'w') as text_file:
+                text_file.write(self.verilog)
+            

@@ -4,6 +4,7 @@ from scipy import linalg
 
 
 def _hamiltonian_matrix(g, sys):
+    
     A, B, C, D = sys
     r, c = D.shape
     R = D.T.dot(D) - g * g * np.identity(c)
@@ -19,6 +20,7 @@ def _hamiltonian_matrix(g, sys):
 
 
 def _tf(s, sys):
+    
     A, B, C, D = sys
     n = A.shape[0]
     poles = linalg.inv(s * np.identity(n) - A)
@@ -27,7 +29,8 @@ def _tf(s, sys):
     
 def _initial_glb(sys):
     
-    poles, _ = linalg.eig(sys.A)
+    A, B, C, D = sys
+    poles, _ = linalg.eig(A)
     pabs = np.abs(poles)
     
     if all(np.isreal(poles)) == True:
@@ -40,7 +43,7 @@ def _initial_glb(sys):
     Gwp = _tf(1j*wp, sys)
     
     sig = []
-    for tf in (G0, Gwp, sys.D):
+    for tf in (G0, Gwp, D):
         _, s, _ = linalg.svd(tf)
         sig.append(max(s))
     
@@ -68,6 +71,7 @@ def _robust_no_imaginary(x_vals):
 
 
 def _find_new_lower_bound(wi, sys):
+    
     si = []
     for i in range(len(wi)-1):
         mi = 0.5 * (wi[i] + wi[i+1])
@@ -78,7 +82,7 @@ def _find_new_lower_bound(wi, sys):
     return glb
 
 
-def norm_hinf(sys):
+def norm_hinf_continuous(sys):
     
     glb, gub = _initial_glb(sys), 0
     no_imaginary = False
@@ -96,6 +100,13 @@ def norm_hinf(sys):
             
     norm = 0.5 * (glb + gub)
     return norm
+
+
+def order(sys):
+    
+    A, _, _, _ = sys
+    order = A.shape[0]
+    return order
 
 
 def lqr(A, B, Q, R):

@@ -1,16 +1,17 @@
 def real2int(val, vf):
     """
-    val     The real number to convert to its signed integer representation.
-    vf      The fractional length.
+    :param val:     The real number to convert to its signed integer 
+                    representation.
+    :param vf:      The fractional length.
     """
     return round(val * 2 ** vf)
 
 
 def int2verilog(val, vw):
     """
-    val     An signed integer to convert to a verilog literal.
-    vw      The word length.
+    :param val: A signed integer to convert to a verilog literal.
+    :param vw:  The word length of the constant value.
     """
-    if val < 0:
-        val = 2 ** vw + val
-    return '%d\'d%s' % (vw, format(val, 'x')) 
+    sign = '-' if val < 0 else ''
+    s = ''.join((sign, str(vw), '\'sd', str(abs(val))))
+    return s
