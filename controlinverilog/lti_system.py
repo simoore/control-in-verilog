@@ -1,14 +1,17 @@
-import math
+from math import ceil, floor, log
 import numpy as np
 import scipy.signal as signal
+import jinja2
 from . import mechatronics
 
 
 class LtiSystem:
     
     def __init__(self, name, fs, sys, iw=16, if_=14, of=14, sf=14, 
-                 output_norm=1, state_norm=349.298):
+                 output_norm=1, state_norm=349.298, stages=1):
         """
+        Contructs the verilog code implementing an LTI system.
+        
         Parameters
         ----------
         name : string
@@ -26,6 +29,9 @@ class LtiSystem:
             Output fractional length.
         sf : int 
             State fraction length.
+        stages : int
+            The length of the pipelined in the adder for the matrix 
+            multiplications.
         """
         
         self.name = name
@@ -34,6 +40,7 @@ class LtiSystem:
         self.if_ = if_
         self.of = of
         self.sf = sf
+        self._stages = stages
         
         if isinstance(sys, signal.StateSpace) is True:
             self.sysa = (sys.A, sys.B, sys.C, sys.D)
@@ -43,8 +50,39 @@ class LtiSystem:
         self._set_coefficient_format(cw=16, cf=15)
         self._set_signal_format(output_norm, state_norm)
         self._set_system()
+        self._gen_template_vars()
+
+        # Generate verilog code.
+        context = {'name': name,
+                   'iw': self.iw,
+                   'ow': self.ow,
+                   'sw': self.sw,
+                   'cw': self.cw,
+                   'cf': self.cf,
+                   'del': self.del_par,
+                   'params': self.params,
+                   'sig_ins': self.sig_in,
+                   'sig_outs': self.sig_out,
+                   'sig_u': self.sig_u,
+                   'sig_x': self.sig_x,
+                   'sig_x_long': self.sig_x_long,
+                   'sig_dx': self.sig_dx,
+                   'sig_y_long': self.sig_y_long,
+                   'sig_prods': self.sig_prods,
+                   'input_buffers': self.input_buffers,
+                   'state_buffers': self.state_buffers,
+                   'outputs': self.outputs,
+                   'prods': self.prods,
+                   'deltas': self.deltas,
+                   'adder': self.adder}
         
+        loader = jinja2.PackageLoader('controlinverilog', 'templates')
+        env = jinja2.Environment(loader=loader, trim_blocks=True, 
+                                 lstrip_blocks=True)
+        template = env.get_template('lti_system.v')
+        self.verilog = template.render(context)
         
+
     def _set_coefficient_format(self, cw, cf):
         # TODO: Determine an automated fashion to set these variables.
         self.cw = cw
@@ -70,8 +108,8 @@ class LtiSystem:
 #        print('Output norm %g' % output_norm)
 #        print('State norm %g' % state_norm)
         
-        no = math.ceil(math.log(output_norm, 2))
-        ns = math.ceil(math.log(state_norm, 2))
+        no = ceil(log(output_norm, 2))
+        ns = ceil(log(state_norm, 2))
 
         self.ow = self.iw + no + self.of - self.if_
         self.sw = self.iw + ns + self.sf - self.if_
@@ -108,9 +146,9 @@ class LtiSystem:
         self.C = C
         self.D = D
         self.order = A.shape[0]
-        self.ninputs = B.shape[1]
-        self.noutputs = C.shape[0]
-        self.del_par = int(math.log(1 / delta, 2))
+        self.n_inputs = B.shape[1]
+        self.n_outputs = C.shape[0]
+        self.del_par = int(log(1 / delta, 2))
         
         
     def _sys_to_delta(self, sys):
@@ -141,7 +179,7 @@ class LtiSystem:
         # choose delta parameter
         range_ = 2 ** (self.cw - self.cf - 1)
         alpha = max([np.amax(np.abs(A1)), np.amax(B * B), np.amax(C * C)])
-        delta = 2 ** (-math.floor(math.log(range_ / alpha, 2)))
+        delta = 2 ** (-floor(log(range_ / alpha, 2)))
         
         # transform system
         AM = A1 / delta
@@ -159,7 +197,110 @@ class LtiSystem:
         return sysf
     
     
-    def print_format(self):
+    def _gen_template_vars(self):
+        
+        f2 = lambda x, y: ''.join((x, str(y + 1)))
+        
+        self.sig_in = [f2('sig_in', n) for n in range(self.n_inputs)]
+        self.sig_out = [f2('sig_out', n) for n in range(self.n_outputs)]
+        self.sig_u = [f2('u', n) for n in range(self.n_inputs)]
+        self.sig_x_long = [f2('x_long', n) for n in range(self.order)]
+        self.sig_x = [f2('x', n) for n in range(self.order)]
+        self.sig_dx = [f2('dx', n) for n in range(self.order)]
+        self.sig_y_long = [f2('y_long', n) for n in range(self.n_outputs)]
+        
+        self.input_buffers = zip(self.sig_u, self.sig_in)
+        self.state_buffers = zip(self.sig_x, self.sig_x_long)
+        self.outputs = zip(self.sig_out, self.sig_y_long)
+        self.deltas = zip(self.sig_x_long, self.sig_dx)
+        
+        self.params = []
+        self.sig_prods = []
+        self.prods = []
+        self.adder = [[] for _ in range(self._stages)]
+        
+        self._gen_matrix(self.A, 'A', 'ax', 'x')
+        self._gen_matrix(self.B, 'B', 'bu', 'u')
+        self._gen_matrix(self.C, 'C', 'cx', 'x')
+        self._gen_matrix(self.D, 'D', 'du', 'u')
+        self._gen_adder()
+        
+        
+    def _gen_matrix(self, mat, par_name, reg_name, inp_name):
+
+        for r, c in np.ndindex(mat.shape):
+            n1 = ''.join((par_name, str(r + 1), '_', str(c + 1)))
+            n2 = ''.join((reg_name, str(r + 1), '_', str(c + 1)))
+            n3 = ''.join((inp_name, str(c + 1)))
+            val = int(mat[r, c])
+            self.sig_prods.append(n2)
+            self.params.append({'name': n1, 'value': val})
+            self.prods.append({'o': n2, 'a': n1, 'b': n3})
+            
+
+    def _gen_adder(self):
+        # TODO: The adder is currently multi-cycle, make it pipelined.
+        # Make a generic tree adder block and link link the inputs and 
+        # outputs via assignments.
+        # Add the pipeline registers to the signal list.
+        # Currently, stage > 1 has some issues.
+        
+        f1 = lambda x, y, z: ''.join((x, str(y + 1), '_', str(z + 1)))
+        f2 = lambda x, y: ''.join(('pipeS', str(x + 1), '_', str(y + 1)))
+        f3 = lambda x, y: ''.join(('pipeO', str(x + 1), '_', str(y + 1)))
+        
+        terms_total = (self.order + self.n_inputs + self._stages - 1) 
+        terms_per_stage = ceil(terms_total / self._stages)
+        ls = self._stages - 1
+        
+        # Complete expressions with no pipelining.
+        state_eqn = []
+        for i in range(self.order):
+            state_terms = [f1('ax', i, j) for j in range(self.order)]
+            input_terms = [f1('bu', i, j) for j in range(self.n_inputs)]
+            state_eqn.append(state_terms + input_terms)
+            
+        output_eqn = []
+        for i in range(self.n_outputs):
+            state_terms = [f1('cx', i, j) for j in range(self.order)]
+            input_terms = [f1('du', i, j) for j in range(self.n_inputs)]
+            output_eqn.append(state_terms + input_terms)
+        
+        for k in range(self._stages):
+            
+            input_ce = 'ce_mul' if k == 0 else ''.join(('ce_add_', str(k))) 
+            output_ce = 'ce_out' if k == ls else ''.join(('ce_add_', str(k+1)))
+            self.adder[k].append((output_ce, input_ce))
+
+            # For state equation.
+            for i in range(self.order):
+                init_term = state_eqn[i][0] if k == 0 else f2(k-1, i)
+                st = k * (terms_per_stage - 1) + 1
+                en = min((st + terms_per_stage - 1, len(state_eqn[i]) + 1))
+                rhs = ' + '.join([init_term] + state_eqn[i][st:en])
+                lhs = self.sig_dx[i] if k == ls else f2(k, i)
+                self.adder[k].append((lhs, rhs))
+                
+            # For output equation.
+            for i in range(self.n_outputs):
+                init_term = output_eqn[i][0] if k == 0 else f3(k-1, i)
+                st = k * (terms_per_stage - 1) + 1
+                en = min((st + terms_per_stage - 1, len(output_eqn[i]) + 1))
+                rhs = ' + '.join([init_term] + output_eqn[i][st:en])
+                lhs = self.sig_y_long[i] if k == ls else f3(k, i)
+                self.adder[k].append((lhs, rhs))
+
+
+    def print_verilog(self, filename=None):
+        
+        if filename is None:
+            print(self.verilog)
+        else:
+            with open(filename, 'w') as text_file:
+                text_file.write(self.verilog)
+    
+    
+    def print_summary(self):
         
         print('LTI System Formats:')
         print('Input word length (IW): s(%d,%d)' % (self.iw, self.if_))
