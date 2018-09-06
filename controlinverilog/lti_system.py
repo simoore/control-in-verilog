@@ -217,7 +217,7 @@ class LtiSystem:
         self.params = []
         self.sig_prods = []
         self.prods = []
-        self.adder = [[] for _ in range(self._stages)]
+        self.adder = []
         
         self._gen_matrix(self.A, 'A', 'ax', 'x')
         self._gen_matrix(self.B, 'B', 'bu', 'u')
@@ -237,60 +237,47 @@ class LtiSystem:
             self.params.append({'name': n1, 'value': val})
             self.prods.append({'o': n2, 'a': n1, 'b': n3})
             
-
+    
     def _gen_adder(self):
-        # TODO: The adder is currently multi-cycle, make it pipelined.
-        # Make a generic tree adder block and link link the inputs and 
-        # outputs via assignments.
-        # Add the pipeline registers to the signal list.
-        # Currently, stage > 1 has some issues.
+        """
+        The V2 adder is pipelined. It is also defined by the maximum number of 
+        terms to add in one cycle, rather than the number of stages.
+        """
+
+        #comp = 6 # The number of terms to add.
+        #n_add = 3 # The max number of terms to add.
+ 
+        n_operands = [5]
+        n_operands = [3, 2] 
         
-        f1 = lambda x, y, z: ''.join((x, str(y + 1), '_', str(z + 1)))
-        f2 = lambda x, y: ''.join(('pipeS', str(x + 1), '_', str(y + 1)))
-        f3 = lambda x, y: ''.join(('pipeO', str(x + 1), '_', str(y + 1)))
+        # TODO: calculate this matrix.
         
-        terms_total = (self.order + self.n_inputs + self._stages - 1) 
-        terms_per_stage = ceil(terms_total / self._stages)
-        ls = self._stages - 1
+        # TODO: Add clock enable.
         
-        # Complete expressions with no pipelining.
-        state_eqn = []
-        for i in range(self.order):
-            state_terms = [f1('ax', i, j) for j in range(self.order)]
-            input_terms = [f1('bu', i, j) for j in range(self.n_inputs)]
-            state_eqn.append(state_terms + input_terms)
+        def helper(n_eqn, slbl, ilbl, offset, sig_result):
+        
+            f1 = lambda x, y, z: ''.join((x, str(y + 1), '_', str(z + 1)))
+            f2 = lambda x, y, z: ''.join(('sum', str(x), str(y), str(z)))
             
-        output_eqn = []
-        for i in range(self.n_outputs):
-            state_terms = [f1('cx', i, j) for j in range(self.order)]
-            input_terms = [f1('du', i, j) for j in range(self.n_inputs)]
-            output_eqn.append(state_terms + input_terms)
+            for ii in range(n_eqn):
+                state_terms = [f1(slbl, ii, jj) for jj in range(self.order)]
+                input_terms = [f1(ilbl, ii, jj) for jj in range(self.n_inputs)]
+                terms = state_terms + input_terms
+                for jj, size in enumerate(n_operands):
+                    terms = [' + '.join(terms[kk:kk+size]) 
+                             for kk in range(0, len(terms), size)]
+                    if jj == len(n_operands)-1:
+                        new_terms = [sig_result[ii]]
+                    else:
+                        new_terms = [f2(ii + offset, jj, kk) 
+                                     for kk in range(len(terms))]    
+                    self.adder.extend(list(zip(new_terms, terms)))
+                    terms = new_terms
         
-        for k in range(self._stages):
-            
-            input_ce = 'ce_mul' if k == 0 else ''.join(('ce_add_', str(k))) 
-            output_ce = 'ce_out' if k == ls else ''.join(('ce_add_', str(k+1)))
-            self.adder[k].append((output_ce, input_ce))
-
-            # For state equation.
-            for i in range(self.order):
-                init_term = state_eqn[i][0] if k == 0 else f2(k-1, i)
-                st = k * (terms_per_stage - 1) + 1
-                en = min((st + terms_per_stage - 1, len(state_eqn[i]) + 1))
-                rhs = ' + '.join([init_term] + state_eqn[i][st:en])
-                lhs = self.sig_dx[i] if k == ls else f2(k, i)
-                self.adder[k].append((lhs, rhs))
-                
-            # For output equation.
-            for i in range(self.n_outputs):
-                init_term = output_eqn[i][0] if k == 0 else f3(k-1, i)
-                st = k * (terms_per_stage - 1) + 1
-                en = min((st + terms_per_stage - 1, len(output_eqn[i]) + 1))
-                rhs = ' + '.join([init_term] + output_eqn[i][st:en])
-                lhs = self.sig_y_long[i] if k == ls else f3(k, i)
-                self.adder[k].append((lhs, rhs))
-
-
+        helper(self.order, 'ax', 'bu', 0, self.sig_dx)
+        helper(self.n_outputs, 'cx', 'du', self.order, self.sig_y_long)
+        
+        
     def print_verilog(self, filename=None):
         
         if filename is None:
