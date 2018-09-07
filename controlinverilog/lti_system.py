@@ -1,14 +1,15 @@
-from math import ceil, floor, log
+import math
 import numpy as np
 import scipy.signal as signal
 import jinja2
+
 from . import mechatronics
 
 
 class LtiSystem:
     
     def __init__(self, name, fs, sys, iw=16, if_=14, of=14, sf=14, 
-                 output_norm=1, state_norm=349.298, stages=1):
+                 output_norm=1, state_norm=349.298, n_add=3):
         """
         Contructs the verilog code implementing an LTI system.
         
@@ -29,9 +30,9 @@ class LtiSystem:
             Output fractional length.
         sf : int 
             State fraction length.
-        stages : int
-            The length of the pipelined in the adder for the matrix 
-            multiplications.
+        n_add : int
+            The number of additions that can be simulataneously performed in 
+            one cycle.
         """
         
         self.name = name
@@ -40,7 +41,7 @@ class LtiSystem:
         self.if_ = if_
         self.of = of
         self.sf = sf
-        self._stages = stages
+        self.n_add = n_add
         
         if isinstance(sys, signal.StateSpace) is True:
             self.sysa = (sys.A, sys.B, sys.C, sys.D)
@@ -50,7 +51,7 @@ class LtiSystem:
         self._set_coefficient_format(cw=16, cf=15)
         self._set_signal_format(output_norm, state_norm)
         self._set_system()
-        self._gen_template_vars()
+        self.gen_template_vars()
 
         # Generate verilog code.
         context = {'name': name,
@@ -61,20 +62,21 @@ class LtiSystem:
                    'cf': self.cf,
                    'del': self.del_par,
                    'params': self.params,
-                   'sig_ins': self.sig_in,
-                   'sig_outs': self.sig_out,
+                   'sig_in': self.sig_in,
+                   'sig_out': self.sig_out,
                    'sig_u': self.sig_u,
                    'sig_x': self.sig_x,
                    'sig_x_long': self.sig_x_long,
                    'sig_dx': self.sig_dx,
                    'sig_y_long': self.sig_y_long,
-                   'sig_prods': self.sig_prods,
+                   'sig_prod': self.sig_prod,
+                   'sig_add': self.sig_add,
                    'input_buffers': self.input_buffers,
                    'state_buffers': self.state_buffers,
                    'outputs': self.outputs,
                    'prods': self.prods,
                    'deltas': self.deltas,
-                   'adder': self.adder}
+                   'adders': self.adders}
         
         loader = jinja2.PackageLoader('controlinverilog', 'templates')
         env = jinja2.Environment(loader=loader, trim_blocks=True, 
@@ -108,8 +110,8 @@ class LtiSystem:
 #        print('Output norm %g' % output_norm)
 #        print('State norm %g' % state_norm)
         
-        no = ceil(log(output_norm, 2))
-        ns = ceil(log(state_norm, 2))
+        no = math.ceil(math.log(output_norm, 2))
+        ns = math.ceil(math.log(state_norm, 2))
 
         self.ow = self.iw + no + self.of - self.if_
         self.sw = self.iw + ns + self.sf - self.if_
@@ -148,7 +150,7 @@ class LtiSystem:
         self.order = A.shape[0]
         self.n_inputs = B.shape[1]
         self.n_outputs = C.shape[0]
-        self.del_par = int(log(1 / delta, 2))
+        self.del_par = int(math.log(1 / delta, 2))
         
         
     def _sys_to_delta(self, sys):
@@ -179,7 +181,7 @@ class LtiSystem:
         # choose delta parameter
         range_ = 2 ** (self.cw - self.cf - 1)
         alpha = max([np.amax(np.abs(A1)), np.amax(B * B), np.amax(C * C)])
-        delta = 2 ** (-floor(log(range_ / alpha, 2)))
+        delta = 2 ** (-math.floor(math.log(range_ / alpha, 2)))
         
         # transform system
         AM = A1 / delta
@@ -197,17 +199,24 @@ class LtiSystem:
         return sysf
     
     
-    def _gen_template_vars(self):
+    def gen_template_vars(self):
         
-        f2 = lambda x, y: ''.join((x, str(y + 1)))
+        def name_signal(name, index):
+            return '_'.join((name, str(index + 1)))
         
-        self.sig_in = [f2('sig_in', n) for n in range(self.n_inputs)]
-        self.sig_out = [f2('sig_out', n) for n in range(self.n_outputs)]
-        self.sig_u = [f2('u', n) for n in range(self.n_inputs)]
-        self.sig_x_long = [f2('x_long', n) for n in range(self.order)]
-        self.sig_x = [f2('x', n) for n in range(self.order)]
-        self.sig_dx = [f2('dx', n) for n in range(self.order)]
-        self.sig_y_long = [f2('y_long', n) for n in range(self.n_outputs)]
+        vfunc = np.vectorize(name_signal)
+        
+        ind_in = np.arange(self.n_inputs)
+        ind_out = np.arange(self.n_outputs)
+        ind_order = np.arange(self.order)
+        
+        self.sig_in = vfunc('sig_in', ind_in)
+        self.sig_out = vfunc('sig_out', ind_out)
+        self.sig_u = vfunc('u', ind_in)
+        self.sig_x_long = vfunc('x_long', ind_order)
+        self.sig_x = vfunc('x', ind_order)
+        self.sig_dx = vfunc('dx', ind_order)
+        self.sig_y_long = vfunc('y_long', ind_out)
         
         self.input_buffers = zip(self.sig_u, self.sig_in)
         self.state_buffers = zip(self.sig_x, self.sig_x_long)
@@ -215,67 +224,84 @@ class LtiSystem:
         self.deltas = zip(self.sig_x_long, self.sig_dx)
         
         self.params = []
-        self.sig_prods = []
+        self.sig_prod = []
         self.prods = []
-        self.adder = []
+        self.adders = []
+        self.sig_add = []
         
-        self._gen_matrix(self.A, 'A', 'ax', 'x')
-        self._gen_matrix(self.B, 'B', 'bu', 'u')
-        self._gen_matrix(self.C, 'C', 'cx', 'x')
-        self._gen_matrix(self.D, 'D', 'du', 'u')
-        self._gen_adder()
+        axs = self.gen_matrix(self.A, 'A', 'ax', self.sig_x)
+        bus = self.gen_matrix(self.B, 'B', 'bu', self.sig_u)
+        cxs = self.gen_matrix(self.C, 'C', 'cx', self.sig_x)
+        dus = self.gen_matrix(self.D, 'D', 'du', self.sig_u)
+        self.gen_adder_ce()
+        self.gen_adder(axs, bus, self.sig_dx, 'sumS')
+        self.gen_adder(cxs, dus, self.sig_y_long, 'sumO')
         
         
-    def _gen_matrix(self, mat, par_name, reg_name, inp_name):
-
-        for r, c in np.ndindex(mat.shape):
-            n1 = ''.join((par_name, str(r + 1), '_', str(c + 1)))
-            n2 = ''.join((reg_name, str(r + 1), '_', str(c + 1)))
-            n3 = ''.join((inp_name, str(c + 1)))
-            val = int(mat[r, c])
-            self.sig_prods.append(n2)
-            self.params.append({'name': n1, 'value': val})
-            self.prods.append({'o': n2, 'a': n1, 'b': n3})
+    def gen_matrix(self, mat, par_name, reg_name, inp):
+        
+        def name_elem(name, r, c):
+            return '_'.join((name, str(r + 1), str(c + 1)))
+        
+        def sig_prod_elem(r, c):
+            return name_elem(reg_name, r, c)
+        
+        def prod_elem(r, c):
+            return {'name': name_elem(par_name, r, c), 
+                    'value': int(mat[r, c])}
+        
+        v2 = np.vectorize(sig_prod_elem)
+        v3 = np.vectorize(prod_elem)
+        sig_prod = np.fromfunction(v2, mat.shape, dtype=int)
+        params = np.fromfunction(v3, mat.shape, dtype=int)
+        
+        def prod_elem(row, col):
+            return {'o': sig_prod[row, col], 
+                    'a': params[row, col]['name'], 
+                    'b': inp[col]}
             
-    
-    def _gen_adder(self):
-        """
-        The V2 adder is pipelined. It is also defined by the maximum number of 
-        terms to add in one cycle, rather than the number of stages.
-        """
+        v4 = np.vectorize(prod_elem)
+        prods = np.fromfunction(v4, mat.shape, dtype=int)
+        
+        self.params.extend(params.ravel())
+        self.sig_prod.extend(sig_prod.ravel())
+        self.prods.extend(prods.ravel())
+        return sig_prod
 
-        #comp = 6 # The number of terms to add.
-        #n_add = 3 # The max number of terms to add.
+
+    def gen_adder_ce(self):
+        
+        n_inp = self.order + self.n_inputs
+        n_stages = math.ceil(math.log(n_inp, self.n_add))
+        ce = ['_'.join(('ce_add', str(ii))) for ii in range(1, n_stages)]
+        ce.insert(0, 'ce_mul')
+        ce.append('ce_out')
+        self.adders.extend(list(zip(ce[1:], ce[:-1])))
+        
+
+    def gen_adder(self, state_terms, input_terms, output_terms, reg_name):
  
-        n_operands = [5]
-        n_operands = [3, 2] 
+        n_add = self.n_add
+        n_inp = self.order + self.n_inputs
+        n_stages = math.ceil(math.log(n_inp, n_add))
+        n_eqn = len(output_terms)
+        f2 = lambda x, y, z: '_'.join((reg_name, str(x), str(y), str(z)))
         
-        # TODO: calculate this matrix.
-        
-        # TODO: Add clock enable.
-        
-        def helper(n_eqn, slbl, ilbl, offset, sig_result):
-        
-            f1 = lambda x, y, z: ''.join((x, str(y + 1), '_', str(z + 1)))
-            f2 = lambda x, y, z: ''.join(('sum', str(x), str(y), str(z)))
-            
-            for ii in range(n_eqn):
-                state_terms = [f1(slbl, ii, jj) for jj in range(self.order)]
-                input_terms = [f1(ilbl, ii, jj) for jj in range(self.n_inputs)]
-                terms = state_terms + input_terms
-                for jj, size in enumerate(n_operands):
-                    terms = [' + '.join(terms[kk:kk+size]) 
-                             for kk in range(0, len(terms), size)]
-                    if jj == len(n_operands)-1:
-                        new_terms = [sig_result[ii]]
-                    else:
-                        new_terms = [f2(ii + offset, jj, kk) 
-                                     for kk in range(len(terms))]    
-                    self.adder.extend(list(zip(new_terms, terms)))
-                    terms = new_terms
-        
-        helper(self.order, 'ax', 'bu', 0, self.sig_dx)
-        helper(self.n_outputs, 'cx', 'du', self.order, self.sig_y_long)
+        for ii in range(n_eqn):
+            terms = np.concatenate((state_terms[ii, :], input_terms[ii, :]))
+            for jj in range(n_stages):
+                size = min(n_add, len(terms))
+                n_terms = (len(terms) - 1) // size + 1
+                terms = np.array_split(terms, n_terms)
+                terms = [' + '.join(n) for n in terms]
+                if jj == n_stages - 1:
+                    new_terms = [output_terms[ii]]
+                else:
+                   ind_sig_add = np.arange(n_terms)
+                   new_terms = [f2(ii, jj, kk) for kk in ind_sig_add]   
+                   self.sig_add.extend(new_terms)
+                self.adders.extend(list(zip(new_terms, terms)))
+                terms = new_terms
         
         
     def print_verilog(self, filename=None):

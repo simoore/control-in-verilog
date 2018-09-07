@@ -12,10 +12,10 @@ module {{ name }} #
     parameter DEL = {{ del }}
 )
 (
-    {% for i in sig_ins %}
+    {% for i in sig_in %}
     input wire [IW-1:0] {{ i }}, 
     {% endfor %}
-    {% for o in sig_outs %}
+    {% for o in sig_out %}
     output wire [OW-1:0] {{ o }}, 
     {% endfor %}
     input wire clk,
@@ -40,7 +40,11 @@ module {{ name }} #
     {% for s in sig_y_long %}
     reg signed [RW-1:0] {{ s }};
     {% endfor %}
-    {% for s in sig_prods %}
+    {% for s in sig_prod %}
+    reg signed [RW-1:0] {{ s }};
+    {% endfor %}
+    
+    {% for s in sig_add %}
     reg signed [RW-1:0] {{ s }};
     {% endfor %}
     
@@ -74,7 +78,7 @@ module {{ name }} #
     * The adder.
     **************************************************************************/
     always @(posedge clk) begin
-        {% for exp in adder %}
+        {% for exp in adders %}
         {{ exp[0] }} <= {{ exp[1] }}
         {% endfor %}
     end
@@ -110,7 +114,7 @@ module {{ name }} #
         {% for s in sig_dx %}
         {{ s }} = 0;
         {% endfor %}
-        {% for s in sig_prods %}
+        {% for s in sig_prod %}
         {{ s }} = 0;
         {% endfor %}
     end

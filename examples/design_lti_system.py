@@ -23,6 +23,6 @@ lti = civ.LtiSystem('lti_system',
                     sf=14, 
                     output_norm=1, 
                     state_norm=380,
-                    stages=1)
+                    n_add=3)
 lti.print_summary()
 lti.print_verilog('lti_system.v')
