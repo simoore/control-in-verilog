@@ -285,7 +285,9 @@ class LtiSystem:
         n_inp = self.order + self.n_inputs
         n_stages = math.ceil(math.log(n_inp, n_add))
         n_eqn = len(output_terms)
-        f2 = lambda x, y, z: '_'.join((reg_name, str(x), str(y), str(z)))
+        
+        def name_reg(x, y, z):
+            return '_'.join((reg_name, str(x), str(y), str(z)))
         
         for ii in range(n_eqn):
             terms = np.concatenate((state_terms[ii, :], input_terms[ii, :]))
@@ -297,8 +299,8 @@ class LtiSystem:
                 if jj == n_stages - 1:
                     new_terms = [output_terms[ii]]
                 else:
-                   ind_sig_add = np.arange(n_terms)
-                   new_terms = [f2(ii, jj, kk) for kk in ind_sig_add]   
+                   index = np.arange(n_terms)
+                   new_terms = [name_reg(ii, jj, kk) for kk in index]   
                    self.sig_add.extend(new_terms)
                 self.adders.extend(list(zip(new_terms, terms)))
                 terms = new_terms

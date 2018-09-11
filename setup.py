@@ -11,7 +11,7 @@ civ_license = 'MIT'
 civ_author = 'Steven Moore'
 civ_author_email = 'steven.ian.moore@gmail.com'
 civ_url = 'http://github.com/simoore/control-in-verilog'
-civ_install_requires = ['numpy', 'jinja2']
+civ_install_requires = ['numpy', 'jinja2', 'scipy']
 civ_pacakges = ['controlinverilog']
 civ_version = 0.1
 

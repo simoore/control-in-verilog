@@ -1,6 +1,8 @@
 # import control
 import numpy as np
 from scipy import linalg
+from scipy import integrate
+from scipy import signal
 
 
 def _hamiltonian_matrix(g, sys):
@@ -58,7 +60,8 @@ def _robust_no_imaginary(x_vals):
     no_imaginary : bool
         True if all values are not imaginary, otherwise False.
     only_imag : list of float
-        Returns the imaginary components of the imaginary values. The list is sorted.
+        Returns the imaginary components of the imaginary values. 
+        The list is sorted.
     """
     x_imag = np.imag(x_vals)
     is_imag = np.isclose(1j*x_imag, x_vals, rtol=1e-12, atol=1e-8)
@@ -102,9 +105,90 @@ def norm_hinf_continuous(sys):
     return norm
 
 
+def norm_h2_discrete_siso(sys):
+    """
+    Numerically computes the H$_2$ norm of a SISO LTI discrete time system.
+    
+    Parameters
+    ----------
+    sys : tuple of ndarray
+        The state space matrices (A, B, C, D).
+        
+    Returns
+    -------
+    norm : int
+        The H$_2$ norm.
+    """
+    A, B, C, D = sys
+    
+    if B.shape[1] != 1 or C.shape[0] != 1:
+        raise ValueError('This algorithm applies to SISO systems.')
+    
+    def integrand(w):
+        z = np.exp(1j*w)
+        tf = C @ linalg.inv(z*np.identity(A.shape[0]) - A) @ B + D
+        return np.abs(tf) ** 2
+        
+    res =  integrate.quad(integrand, -np.pi, np.pi)
+    return np.sqrt(1/(2*np.pi) * res[0])
+    
+
+def norm_hinf_discrete_siso(sys, samples=1000):
+    """
+    Numerically computes the H$_\infty$ norm of a SISO LTI discrete time 
+    system.
+    
+    Parameters
+    ----------
+    sys : tuple of ndarray
+        The state space matrices (A, B, C, D).
+    samples : int
+        The number of points in the frequency domain to evalute the transfer 
+        function of the system.
+        
+    Returns
+    -------
+    norm : int
+        The H$_\infty$ norm.
+    """
+    A, B, C, D = sys
+    
+    if B.shape[1] != 1 or C.shape[0] != 1:
+        raise ValueError('This algorithm applies to SISO systems.')
+    
+    def magnitude(w):
+        z = np.exp(1j*w)
+        tf = C @ linalg.inv(z*np.identity(A.shape[0]) - A) @ B + D
+        return np.abs(tf)
+        
+    vfunc = np.vectorize(magnitude)
+    freq = np.linspace(0, np.pi, samples)
+    return np.amax(vfunc(freq))
+
+
+def norm_h2_discrete(sys):
+    """
+    Numerically computes the H$_2$ norm of a LTI discrete time system.
+    
+    Parameters
+    ----------
+    sys : tuple of ndarray
+        The state space matrices (A, B, C, D).
+        
+    Returns
+    -------
+    norm : int
+        The H$_2$ norm.
+    """
+    A, B, C, D = sys
+    W0 = observability_gramian_discrete(A, C)
+    norm = np.sqrt(np.trace(B.T @ W0 @ B))
+    return norm
+
+
 def order(sys):
     
-    A, _, _, _ = sys
+    A = sys[0]
     order = A.shape[0]
     return order
 
@@ -243,3 +327,20 @@ def balanced_realization_discrete(sys):
     Cb = C.dot(T)
     Db = D
     return (Ab, Bb, Cb, Db)
+
+
+def step_info(sys, dt):
+    
+    A, B, C, D = sys
+    
+    # Compute simulation time.
+    zeig = linalg.eigvals(A)
+    seig = np.log(zeig)/dt
+    r = min(abs(np.real(seig)))
+    if r == 0.0:
+        r = 1.0
+    tc = 1.0 / r
+    t = np.linspace(0.0, 7 * tc, 1000)
+    
+    return signal.dstep((A, B, C, D, dt), t=t)
+    
