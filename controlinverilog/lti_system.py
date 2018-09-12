@@ -2,14 +2,13 @@ import math
 import numpy as np
 import scipy.signal as signal
 import jinja2
-
 from . import mechatronics
 
 
 class LtiSystem:
     
     def __init__(self, name, fs, sys, iw=16, if_=14, of=14, sf=14, 
-                 output_norm=1, state_norm=349.298, n_add=3):
+                 n_add=3, operator='delta', scaling_method='hinf'):
         """
         Contructs the verilog code implementing an LTI system.
         
@@ -33,24 +32,27 @@ class LtiSystem:
         n_add : int
             The number of additions that can be simulataneously performed in 
             one cycle.
+        operator : 'delta' | 'shift'
+            The operator employed in the state equations.
         """
         
         self.name = name
-        self.ts = 1/fs
+        self.dt = 1.0/fs
         self.iw = iw
         self.if_ = if_
         self.of = of
         self.sf = sf
         self.n_add = n_add
+        self.operator = operator
+        self.scaling_method = scaling_method
         
         if isinstance(sys, signal.StateSpace) is True:
             self.sysa = (sys.A, sys.B, sys.C, sys.D)
         else:
             self.sysa = sys
         
-        self._set_coefficient_format(cw=16, cf=15)
-        self._set_signal_format(output_norm, state_norm)
-        self._set_system()
+        self.set_coefficient_format(cw=16, cf=15)
+        self.set_system()
         self.gen_template_vars()
 
         # Generate verilog code.
@@ -85,31 +87,56 @@ class LtiSystem:
         self.verilog = template.render(context)
         
 
-    def _set_coefficient_format(self, cw, cf):
+    def set_coefficient_format(self, cw, cf):
         # TODO: Determine an automated fashion to set these variables.
         self.cw = cw
         self.cf = cf
         
         
-    def _set_signal_format(self, output_norm, state_norm):
-        # TODO: automatrically calculate the norms.
+    def set_signal_format(self, sys, delta):
+        """Set the word length of the output, state and intermediate registers.
         
-#        output_norm = mechatronics.norm_hinf(sys)
-#        order = mechatronics.order(sys)
-#        A, B, _, _ = sys
-#        
-#        nn = np.zeros(order)
-#        for i in range(order):
-#            c = np.zeros((1, order))
-#            c[0, i] = 1
-#            sys_state = (A, B, c, np.zeros((1, 1)));
-#            nn[i] = mechatronics.norm_hinf(sys_state)
-#            print('The inf norm from input to state x%d is %g\n' % (i, nn))
-#        state_norm = np.amax(nn)
-#        
-#        print('Output norm %g' % output_norm)
-#        print('State norm %g' % state_norm)
+        sys : tuple of ndarray
+            A state space discrete time to be coded in verilog. The 
+            coefficients are in their full precision values in the final
+            realization.
+        delta : float | None
+            The delta parameter when using the delta operator, None if using
+            the shift operator.
+        """
         
+        funcs = {'hinf': mechatronics.norm_hinf_discrete_siso,
+                 'h2': mechatronics.norm_h2_discrete_siso,
+                 'overshoot': lambda x: mechatronics.overshoot(x, 1.0),
+                 'safe': lambda x: mechatronics.safe_gain(x, 1.0)}
+        
+        if self.scaling_method not in funcs:
+            raise ValueError('Invalid scaling_method parameter for LtiSystem.')
+        func = funcs[self.scaling_method]
+        
+        A, B, C, D = sys
+        self.order = A.shape[0]
+        self.n_inputs = B.shape[1]
+        self.n_outputs = C.shape[0]
+        if delta is not None:
+            A, B = (np.identity(self.order) + delta * A), delta * B            
+        
+        self.state_norms = np.zeros(self.order)
+        for i in range(self.order):
+            c = np.zeros((1, self.order))
+            c[0, i] = 1
+            sys_state = (A, B, c, np.zeros((1, 1)));
+            self.state_norms[i] = func(sys_state)
+        state_norm = np.amax(self.state_norms)
+        
+        self.output_norms = np.zeros(self.n_outputs)
+        for i in range(self.n_outputs):
+            c = C[[i], :]
+            d = D[[i], :]
+            sys_state = (A, B, c, d)
+            self.output_norms[i] = func(sys_state)
+        output_norm = np.amax(self.output_norms)
+                
         no = math.ceil(math.log(output_norm, 2))
         ns = math.ceil(math.log(state_norm, 2))
 
@@ -119,27 +146,28 @@ class LtiSystem:
         self.rf = self.cf + self.sf
 
                 
-    def _set_system(self):
-        """Generate verilog code parameters for the LTI system.
-    
-        Parameters
-        ----------
-        sys : tuple of ndarray
-            A tuple describing the system (A, B, C, D).
+    def set_system(self):
+        """Computes parameters for verilog code generation.
         """
         
         # step 1 - discretization using the bilinear transform
-        tup = signal.cont2discrete(self.sysa, self.ts, method='bilinear')
+        tup = signal.cont2discrete(self.sysa, self.dt, method='bilinear')
         sysd = tup[0:4]
         
         # step 2 - convert to balanced realization
         sysb = mechatronics.balanced_realization_discrete(sysd)
         
         # step 3 - convert to delta operator
-        sysm, delta = self._sys_to_delta(sysb)
+        if self.operator == 'delta':
+            sysm, delta = self.sys_to_delta(sysb)
+        elif self.operator == 'shift':
+            sysm, delta = sysb, None
+        else:
+            ValueError('Invalid operator parameter for LtiSystem.')
         
         # step 4 - convert to fixed point 
-        sysf = self._sys_to_fixed(sysm)
+        self.set_signal_format(sysm, delta)
+        sysf = self.sys_to_fixed(sysm)
         
         # step 5 - set attributes used in verilog code generation
         A, B, C, D = sysf
@@ -147,13 +175,10 @@ class LtiSystem:
         self.B = B
         self.C = C
         self.D = D
-        self.order = A.shape[0]
-        self.n_inputs = B.shape[1]
-        self.n_outputs = C.shape[0]
-        self.del_par = int(math.log(1 / delta, 2))
+        self.del_par = None if delta is None else int(math.log(1 / delta, 2))
         
         
-    def _sys_to_delta(self, sys):
+    def sys_to_delta(self, sys):
         """Converts the operator of a system from the shift operator to the 
         delta operator. The delta parameter is automatrically chosen to scale 
         the coefficients to fit in the range (-1,1). In addition it is set to a 
@@ -192,8 +217,9 @@ class LtiSystem:
         return sysdelta, delta
     
     
-    def _sys_to_fixed(self, sys):
-        
+    def sys_to_fixed(self, sys):
+        """
+        """
         scale = 2 ** self.cf
         sysf = tuple([np.round(scale * mat) for mat in list(sys)])
         return sysf
@@ -299,9 +325,9 @@ class LtiSystem:
                 if jj == n_stages - 1:
                     new_terms = [output_terms[ii]]
                 else:
-                   index = np.arange(n_terms)
-                   new_terms = [name_reg(ii, jj, kk) for kk in index]   
-                   self.sig_add.extend(new_terms)
+                    index = np.arange(n_terms)
+                    new_terms = [name_reg(ii, jj, kk) for kk in index]   
+                    self.sig_add.extend(new_terms)
                 self.adders.extend(list(zip(new_terms, terms)))
                 terms = new_terms
         
@@ -323,4 +349,11 @@ class LtiSystem:
         print('State word length (SW): s(%d,%d)' % (self.sw, self.sf))
         print('Register word length (RW): s(%d,%d)' % (self.rw, self.rf))
         print('Coefficient word length (CW): s(%d,%d)' % (self.cw, self.cf))
+        
+        print()
+        for i, n in enumerate(self.state_norms):
+            print('The norm from input to state x%d is %g' % (i, n))
+            
+        for i, n in enumerate(self.output_norms):
+            print('The norm from input to output y%d is %g' % (i, n))
         

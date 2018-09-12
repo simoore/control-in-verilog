@@ -1,4 +1,5 @@
 # import control
+import math
 import numpy as np
 from scipy import linalg
 from scipy import integrate
@@ -329,18 +330,55 @@ def balanced_realization_discrete(sys):
     return (Ab, Bb, Cb, Db)
 
 
-def step_info(sys, dt):
-    
-    A, B, C, D = sys
-    
-    # Compute simulation time.
+
+def time_constant(sys, dt):
+    """
+    Returns
+    -------
+    tc : float
+        The time constant of the slowest pole in the system.
+    """
+    A = sys[0]
     zeig = linalg.eigvals(A)
     seig = np.log(zeig)/dt
     r = min(abs(np.real(seig)))
     if r == 0.0:
-        r = 1.0
+        raise ValueError('The system needs to be asymtotically stable.')
     tc = 1.0 / r
-    t = np.linspace(0.0, 7 * tc, 1000)
+    return tc
+
+
+def step_response(sys, dt):
     
-    return signal.dstep((A, B, C, D, dt), t=t)
+    A, B, C, D = sys
+    tc = time_constant(sys, dt)
+    n = round(7 * tc / dt)
+    t, y = signal.dstep((A, B, C, D, dt), n=n)
+    return t, np.squeeze(y)
+
+
+def overshoot(sys, dt):
+    """
+    Returns
+    -------
+    The overshoot due to a unit step of the system.
+    """
+    _, y = step_response(sys, dt)
+    return np.amax(np.squeeze(y))
+
+
+def safe_gain(sys, dt):
+    """
     
+    gain = sum(|f[k]|)
+    
+    where f[k] is the impulse response of the system. To evaluate the impulse
+    response, the system is simulated for 20x the time constant of the slowest
+    pole of the system.
+    """
+    A, B, C, D = sys
+    tc = time_constant(sys, dt)
+    n = round(20 * tc / dt)
+    _, y = signal.dimpulse((A, B, C, D, dt), n=n)
+    gain = np.sum(np.abs(y))
+    return gain

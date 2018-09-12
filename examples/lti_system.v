@@ -28,7 +28,7 @@ module lti_system #
     parameter IW = 16,
     parameter OW = 16,
     parameter CW = 16,
-    parameter SW = 25,
+    parameter SW = 18,
     parameter RW = SW + CW - 1,
     parameter CF = 15,
     parameter DEL = 10

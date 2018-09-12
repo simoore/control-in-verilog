@@ -21,9 +21,11 @@ def test_norm_functions():
     
     
 def test_step_info():
-    ans = mechatronics.step_info(sys, dt)
-    plt.plot(ans[0], np.squeeze(ans[1]))
-    
+    t, y = mechatronics.step_response(sys, dt)
+    print(t[1]-t[0])
+    plt.plot(t, y)
+    ans = mechatronics.overshoot(sys, dt)
+    print(ans)
     
 if __name__ == '__main__':
     test_step_info()

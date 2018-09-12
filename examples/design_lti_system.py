@@ -19,8 +19,6 @@ lti = civ.LtiSystem(name='lti_system',
                     if_=14, 
                     of=14, 
                     sf=14, 
-                    output_norm=1, 
-                    state_norm=380,
                     n_add=3)
 lti.print_summary()
 lti.print_verilog('lti_system.v')
