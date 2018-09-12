@@ -1,5 +1,3 @@
-# import control
-import math
 import numpy as np
 from scipy import linalg
 from scipy import integrate
@@ -382,3 +380,33 @@ def safe_gain(sys, dt):
     _, y = signal.dimpulse((A, B, C, D, dt), n=n)
     gain = np.sum(np.abs(y))
     return gain
+
+
+def is_asymtotically_stable(sys, dt=None, delta=None):
+    """Determines if the system is asymtotically stable.
+    
+    Parameters
+    ----------
+    sys : tuple of ndarray
+        The state space matices of the system (A, B, C, D).
+    dt : float | None
+        The sampling period, None if the system is continuous.
+    delta : float | None
+        The delta parameter of the delta operator. None if the shift operator 
+        is used.
+        
+    Returns
+    -------
+    is_asymtotically_stable : boolean
+        True is stable, else False.
+    """
+    A = sys[0]
+    e = linalg.eig(A)
+    if dt is None:
+        return np.all(np.real(e) < 0)
+    elif delta is None:
+        return np.all(np.abs(e) < 1)
+    else:
+        return np.all(np.abs(1 + delta*e) < 1)
+    return False
+    

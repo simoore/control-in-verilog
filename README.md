@@ -5,15 +5,24 @@ a set of common signal processing and control functions.
 
 ## Decimator
 
+The decimator reduces the sampling frequency of an input signal.
+
 ```
 import controlinverilog as civ
 
-freq_in, top, dw = 100e6, 9, 16
-
-decimator = civ.Decimator(freq_in, top, dw)
+decimator = civ.Decimator(freq_in=100e6, 
+                          top=9, 
+                          dw=16)
+                          
 decimator.print_summary()
 decimator.print_verilog('decimator.v')
 ```
+
+| parameter | type    | description                                      |
+| --------- | ------- | ------------------------------------------------ |
+| `freq_in` | float   | The sampling frequency of the input signal.      |
+| `top`     | int     | The decimation factor is (top + 1).              |
+| `dw`      | int     | The word size of the datapath.                   |
 
 ## Nonlinear Function
 

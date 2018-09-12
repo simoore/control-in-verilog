@@ -5,7 +5,7 @@ import jinja2
 from . import mechatronics
 
 
-class LtiSystem:
+class LtiSystem(object):
     
     def __init__(self, name, fs, sys, iw=16, if_=14, of=14, sf=14, 
                  n_add=3, operator='delta', scaling_method='hinf'):
@@ -34,7 +34,13 @@ class LtiSystem:
             one cycle.
         operator : 'delta' | 'shift'
             The operator employed in the state equations.
+        scaling_method : 'hinf' | 'h2' | 'overshoot' | 'safe'
+            The method to calculate the word growth of the state and output
+            signals.
         """
+        
+        if mechatronics.is_asymtotically_stable(sys) is False:
+            raise ValueError('The system must be asymtotically stable.')
         
         self.name = name
         self.dt = 1.0/fs
@@ -118,9 +124,15 @@ class LtiSystem:
         self.order = A.shape[0]
         self.n_inputs = B.shape[1]
         self.n_outputs = C.shape[0]
-        if delta is not None:
-            A, B = (np.identity(self.order) + delta * A), delta * B            
         
+        # Convert delta operator to shift operator for simulation.
+        if delta is not None:
+            A, B = (np.identity(self.order) + delta * A), delta * B   
+            
+        # The equivalent single input system where all inputs are equal.
+        B = B @ np.ones((self.n_inputs, 1))
+        
+        # The norm from the single input to each state.
         self.state_norms = np.zeros(self.order)
         for i in range(self.order):
             c = np.zeros((1, self.order))
@@ -129,6 +141,7 @@ class LtiSystem:
             self.state_norms[i] = func(sys_state)
         state_norm = np.amax(self.state_norms)
         
+        # The norm from the single input to each output.
         self.output_norms = np.zeros(self.n_outputs)
         for i in range(self.n_outputs):
             c = C[[i], :]
