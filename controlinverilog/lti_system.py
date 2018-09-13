@@ -57,7 +57,6 @@ class LtiSystem(object):
         else:
             self.sysa = sys
         
-        self.set_coefficient_format(cw=16, cf=15)
         self.set_system()
         self.gen_template_vars()
 
@@ -93,10 +92,21 @@ class LtiSystem(object):
         self.verilog = template.render(context)
         
 
-    def set_coefficient_format(self, cw, cf):
+    def set_coefficient_format(self, sys, delta=None):
         # TODO: Determine an automated fashion to set these variables.
-        self.cw = cw
+        
+        cf=15
+        # A, B, C, D = sys
+        
+        # Find the maximum coefficient to determine the size integer word 
+        # length.
+        max_coeff = max(map(lambda x: np.amax(np.abs(x)), sys[:3]))
+        int_w = math.ceil(math.log2(max_coeff))
+        
+        # Find largest coefficient.
+        
         self.cf = cf
+        self.cw = 1 + int_w + self.cf
         
         
     def set_signal_format(self, sys, delta):
@@ -179,6 +189,7 @@ class LtiSystem(object):
             ValueError('Invalid operator parameter for LtiSystem.')
         
         # step 4 - convert to fixed point 
+        self.set_coefficient_format(sysm)
         self.set_signal_format(sysm, delta)
         sysf = self.sys_to_fixed(sysm)
         
@@ -217,9 +228,11 @@ class LtiSystem(object):
         A1 = A - np.identity(order)
         
         # choose delta parameter
-        range_ = 2 ** (self.cw - self.cf - 1)
+        range_ = 1 # 2 ** (self.cw - self.cf - 1)
         alpha = max([np.amax(np.abs(A1)), np.amax(B * B), np.amax(C * C)])
-        delta = 2 ** (-math.floor(math.log(range_ / alpha, 2)))
+        delta = 2 ** (-math.floor(math.log2(range_ / alpha)))
+        
+        # TODO: raise exception if delta value greater > 1
         
         # transform system
         AM = A1 / delta

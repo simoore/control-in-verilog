@@ -401,7 +401,7 @@ def is_asymtotically_stable(sys, dt=None, delta=None):
         True is stable, else False.
     """
     A = sys[0]
-    e = linalg.eig(A)
+    e, _ = linalg.eig(A)
     if dt is None:
         return np.all(np.real(e) < 0)
     elif delta is None:
