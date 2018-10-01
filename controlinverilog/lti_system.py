@@ -1,14 +1,26 @@
 import math
+import itertools
 import numpy as np
 import scipy.signal as signal
 import jinja2
 from . import mechatronics
+from .state_space import StateSpace
+
+
+# TODO: Test all of LtiSignal, mechatronics, and Statespace.
+# TODO: A Runtime warning appears (invalid value encountered in multiply)
+#   when running design_lti_system.
+# TODO: automate the selection of output and state fractional lengths (of, sf).
 
 
 class LtiSystem(object):
     
-    def __init__(self, name, fs, sys, iw=16, if_=14, of=14, sf=14, 
-                 n_add=3, operator='delta', scaling_method='hinf'):
+    def __init__(self, name, fs, sys, 
+                 iw=16, if_=14, of=14, sf=14, cw=16, cf=15, 
+                 n_add=3, cof_threshold=0.001, 
+                 operator='delta', 
+                 sig_scaling_method='hinf', 
+                 cof_scaling_method='hinf'):
         """
         Contructs the verilog code implementing an LTI system.
         
@@ -34,33 +46,37 @@ class LtiSystem(object):
             one cycle.
         operator : 'delta' | 'shift'
             The operator employed in the state equations.
-        scaling_method : 'hinf' | 'h2' | 'overshoot' | 'safe'
+        sig_scaling_method : 'hinf' | 'h2' | 'overshoot' | 'safe'
             The method to calculate the word growth of the state and output
             signals.
+        cof_scaling_method : 'h2' | 'hinf' | 'impulse' | 'pole' | 'fixed'
+            The method to calculate the fixed point format of the coefficients.
         """
         
-        if mechatronics.is_asymtotically_stable(sys) is False:
+        if isinstance(sys, signal.StateSpace) is True:
+            sysa = StateSpace(sys.A, sys.B, sys.C, sys.D)
+        else:
+            sysa = StateSpace(sys[0], sys[1], sys[2], sys[3])
+            
+        if sysa.is_asymtotically_stable() is False:
             raise ValueError('The system must be asymtotically stable.')
-        
-        self.name = name
-        self.dt = 1.0/fs
+            
         self.iw = iw
         self.if_ = if_
         self.of = of
         self.sf = sf
+        self.cw = cw
+        self.cf = cf
         self.n_add = n_add
         self.operator = operator
-        self.scaling_method = scaling_method
+        self.sig_scaling_method = sig_scaling_method
+        self.cof_scaling_method = cof_scaling_method
+        self.cof_threshold = cof_threshold
         
-        if isinstance(sys, signal.StateSpace) is True:
-            self.sysa = (sys.A, sys.B, sys.C, sys.D)
-        else:
-            self.sysa = sys
-        
-        self.set_system()
-        self.gen_template_vars()
+        sysf = self.set_system(sysa, dt=1.0/fs)
+        self.gen_template_vars(sysf)
 
-        # Generate verilog code.
+        #s Generate verilog code.
         context = {'name': name,
                    'iw': self.iw,
                    'ow': self.ow,
@@ -86,30 +102,54 @@ class LtiSystem(object):
                    'adders': self.adders}
         
         loader = jinja2.PackageLoader('controlinverilog', 'templates')
-        env = jinja2.Environment(loader=loader, trim_blocks=True, 
+        env = jinja2.Environment(loader=loader, 
+                                 trim_blocks=True, 
                                  lstrip_blocks=True)
         template = env.get_template('lti_system.v')
         self.verilog = template.render(context)
         
 
-    def set_coefficient_format(self, sys, delta=None):
-        # TODO: Determine an automated fashion to set these variables.
+    def set_coefficient_format(self, sys):
+        """
+        This function selects the coefficient word and fractional lengths. 
+        There are five methods available. The
+        """
         
-        cf=15
-        # A, B, C, D = sys
+        if self.cof_scaling_method == 'fixed':
+            return
         
-        # Find the maximum coefficient to determine the size integer word 
-        # length.
-        max_coeff = max(map(lambda x: np.amax(np.abs(x)), sys[:3]))
+        # Find the largest coefficient to determine the location of the most
+        # significant bit.
+        max_coeff = max(map(lambda x: np.amax(np.abs(x)), sys.params[:3]))
         int_w = math.ceil(math.log2(max_coeff))
         
-        # Find largest coefficient.
+        funcs = {'hinf': mechatronics.metric_hinf,
+                 'h2': mechatronics.metric_h2,
+                 'pole': mechatronics.metric_pole,
+                 'impulse': mechatronics.metric_impulse}
+                
+        if self.cof_scaling_method not in funcs:
+            msg = 'Invalid cof_scaling_method parameter for LtiSystem.'
+            raise ValueError(msg)
+        metric = funcs[self.cof_scaling_method]
+                
+        def eval_metric(cf):
+            scale = 2 ** cf
+            func = lambda mat: np.around(scale * mat) / scale
+            sys_q = sys.transform_params(func)
+            m = metric(sys, sys_q)
+            print(m)
+            return m
+            
+        # Find the location of the least significant bit.
+        flt = filter(lambda cf: eval_metric(cf) < self.cof_threshold, 
+                     itertools.count(1 - int_w))
         
-        self.cf = cf
+        self.cf = next(flt)
         self.cw = 1 + int_w + self.cf
         
         
-    def set_signal_format(self, sys, delta):
+    def set_signal_format(self, sys):
         """Set the word length of the output, state and intermediate registers.
         
         sys : tuple of ndarray
@@ -121,42 +161,44 @@ class LtiSystem(object):
             the shift operator.
         """
         
-        funcs = {'hinf': mechatronics.norm_hinf_discrete_siso,
-                 'h2': mechatronics.norm_h2_discrete_siso,
+        funcs = {'hinf': mechatronics.norm_hinf_discrete,
+                 'h2': mechatronics.norm_h2_discrete,
                  'overshoot': lambda x: mechatronics.overshoot(x, 1.0),
                  'safe': lambda x: mechatronics.safe_gain(x, 1.0)}
         
-        if self.scaling_method not in funcs:
-            raise ValueError('Invalid scaling_method parameter for LtiSystem.')
-        func = funcs[self.scaling_method]
+        if self.sig_scaling_method not in funcs:
+            msg = 'Invalid scaling_method parameter for LtiSystem.'
+            raise ValueError(msg)
+        func = funcs[self.sig_scaling_method]
         
-        A, B, C, D = sys
+        A, B, C, D = sys.params
         self.order = A.shape[0]
         self.n_inputs = B.shape[1]
         self.n_outputs = C.shape[0]
         
         # Convert delta operator to shift operator for simulation.
-        if delta is not None:
-            A, B = (np.identity(self.order) + delta * A), delta * B   
+        if sys.delta is not None:
+            A, B = (np.identity(sys.n_order) + sys.delta * A), sys.delta * B   
             
         # The equivalent single input system where all inputs are equal.
-        B = B @ np.ones((self.n_inputs, 1))
+        B = B @ np.ones((sys.n_inputs, 1))
         
         # The norm from the single input to each state.
-        self.state_norms = np.zeros(self.order)
-        for i in range(self.order):
-            c = np.zeros((1, self.order))
+        self.state_norms = np.zeros(sys.n_order)
+        for i in range(sys.n_order):
+            c = np.zeros((1, sys.n_order))
             c[0, i] = 1
-            sys_state = (A, B, c, np.zeros((1, 1)));
+            sys_state = StateSpace(A, B, c, np.zeros((1, 1)), dt=sys.dt, 
+                                   delta=sys.delta);
             self.state_norms[i] = func(sys_state)
         state_norm = np.amax(self.state_norms)
         
         # The norm from the single input to each output.
-        self.output_norms = np.zeros(self.n_outputs)
-        for i in range(self.n_outputs):
+        self.output_norms = np.zeros(sys.n_outputs)
+        for i in range(sys.n_outputs):
             c = C[[i], :]
             d = D[[i], :]
-            sys_state = (A, B, c, d)
+            sys_state = StateSpace(A, B, c, d, dt=sys.dt, delta=sys.delta)
             self.output_norms[i] = func(sys_state)
         output_norm = np.amax(self.output_norms)
                 
@@ -169,37 +211,32 @@ class LtiSystem(object):
         self.rf = self.cf + self.sf
 
                 
-    def set_system(self):
+    def set_system(self, sysa, dt):
         """Computes parameters for verilog code generation.
         """
         
         # step 1 - discretization using the bilinear transform
-        tup = signal.cont2discrete(self.sysa, self.dt, method='bilinear')
-        sysd = tup[0:4]
+        sysd = sysa.cont2shift(dt)
         
         # step 2 - convert to balanced realization
         sysb = mechatronics.balanced_realization_discrete(sysd)
         
         # step 3 - convert to delta operator
-        if self.operator == 'delta':
-            sysm, delta = self.sys_to_delta(sysb)
-        elif self.operator == 'shift':
-            sysm, delta = sysb, None
-        else:
-            ValueError('Invalid operator parameter for LtiSystem.')
+        if self.operator != 'delta' and self.operator != 'shift':
+            msg = 'Invalid operator parameter for LtiSystem.'
+            raise ValueError(msg)
+        
+        sysm = self.sys_to_delta(sysb) if self.operator == 'delta' else sysb
         
         # step 4 - convert to fixed point 
         self.set_coefficient_format(sysm)
-        self.set_signal_format(sysm, delta)
+        self.set_signal_format(sysm)
         sysf = self.sys_to_fixed(sysm)
         
         # step 5 - set attributes used in verilog code generation
-        A, B, C, D = sysf
-        self.A = A
-        self.B = B
-        self.C = C
-        self.D = D
-        self.del_par = None if delta is None else int(math.log(1 / delta, 2))
+        self.del_par = (None if sysf.delta is None else 
+                        int(math.log(1 / sysf.delta, 2)))
+        return sysf
         
         
     def sys_to_delta(self, sys):
@@ -223,7 +260,7 @@ class LtiSystem(object):
         """
         
         # convert A matrix to delta form
-        A, B, C, D = sys
+        A, B, C, D = sys.params
         order = A.shape[0]
         A1 = A - np.identity(order)
         
@@ -239,28 +276,28 @@ class LtiSystem(object):
         BM = B / np.sqrt(delta)
         CM = C / np.sqrt(delta)
         
-        sysdelta = (AM, BM, CM, D)
-        return sysdelta, delta
+        sysdelta = StateSpace(AM, BM, CM, D, dt=sys.dt, delta=delta)
+        return sysdelta
     
     
     def sys_to_fixed(self, sys):
         """
         """
         scale = 2 ** self.cf
-        sysf = tuple([np.round(scale * mat) for mat in list(sys)])
-        return sysf
+        func = lambda mat: np.round(scale * mat)
+        return sys.transform_params(func)
     
     
-    def gen_template_vars(self):
+    def gen_template_vars(self, sys):
         
         def name_signal(name, index):
             return '_'.join((name, str(index + 1)))
         
         vfunc = np.vectorize(name_signal)
         
-        ind_in = np.arange(self.n_inputs)
-        ind_out = np.arange(self.n_outputs)
-        ind_order = np.arange(self.order)
+        ind_in = np.arange(sys.n_inputs)
+        ind_out = np.arange(sys.n_outputs)
+        ind_order = np.arange(sys.n_order)
         
         self.sig_in = vfunc('sig_in', ind_in)
         self.sig_out = vfunc('sig_out', ind_out)
@@ -281,10 +318,11 @@ class LtiSystem(object):
         self.adders = []
         self.sig_add = []
         
-        axs = self.gen_matrix(self.A, 'A', 'ax', self.sig_x)
-        bus = self.gen_matrix(self.B, 'B', 'bu', self.sig_u)
-        cxs = self.gen_matrix(self.C, 'C', 'cx', self.sig_x)
-        dus = self.gen_matrix(self.D, 'D', 'du', self.sig_u)
+        A, B, C, D = sys.params
+        axs = self.gen_matrix(A, 'A', 'ax', self.sig_x)
+        bus = self.gen_matrix(B, 'B', 'bu', self.sig_u)
+        cxs = self.gen_matrix(C, 'C', 'cx', self.sig_x)
+        dus = self.gen_matrix(D, 'D', 'du', self.sig_u)
         self.gen_adder_ce()
         self.gen_adder(axs, bus, self.sig_dx, 'sumS')
         self.gen_adder(cxs, dus, self.sig_y_long, 'sumO')
