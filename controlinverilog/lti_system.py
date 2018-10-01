@@ -73,6 +73,7 @@ class LtiSystem(object):
         self.cof_scaling_method = cof_scaling_method
         self.cof_threshold = cof_threshold
         
+        self.context = {}
         sysf = self.set_system(sysa, dt=1.0/fs)
         self.gen_template_vars(sysf)
 
@@ -85,7 +86,6 @@ class LtiSystem(object):
                    'cf': self.cf,
                    'del': self.del_par,
                    'params': self.params,
-                   'sig_in': self.sig_in,
                    'sig_out': self.sig_out,
                    'sig_u': self.sig_u,
                    'sig_x': self.sig_x,
@@ -106,7 +106,7 @@ class LtiSystem(object):
                                  trim_blocks=True, 
                                  lstrip_blocks=True)
         template = env.get_template('lti_system.v')
-        self.verilog = template.render(context)
+        self.verilog = template.render({**context, **self.context})
         
 
     def set_coefficient_format(self, sys):
@@ -181,7 +181,7 @@ class LtiSystem(object):
             A, B = (np.identity(sys.n_order) + sys.delta * A), sys.delta * B   
             
         # The equivalent single input system where all inputs are equal.
-        B = B @ np.ones((sys.n_inputs, 1))
+        B = B @ np.ones((sys.n_input, 1))
         
         # The norm from the single input to each state.
         self.state_norms = np.zeros(sys.n_order)
@@ -194,8 +194,8 @@ class LtiSystem(object):
         state_norm = np.amax(self.state_norms)
         
         # The norm from the single input to each output.
-        self.output_norms = np.zeros(sys.n_outputs)
-        for i in range(sys.n_outputs):
+        self.output_norms = np.zeros(sys.n_output)
+        for i in range(sys.n_output):
             c = C[[i], :]
             d = D[[i], :]
             sys_state = StateSpace(A, B, c, d, dt=sys.dt, delta=sys.delta)
@@ -295,11 +295,11 @@ class LtiSystem(object):
         
         vfunc = np.vectorize(name_signal)
         
-        ind_in = np.arange(sys.n_inputs)
-        ind_out = np.arange(sys.n_outputs)
+        ind_in = np.arange(sys.n_input)
+        ind_out = np.arange(sys.n_output)
         ind_order = np.arange(sys.n_order)
         
-        self.sig_in = vfunc('sig_in', ind_in)
+        sig_in = vfunc('sig_in', ind_in)
         self.sig_out = vfunc('sig_out', ind_out)
         self.sig_u = vfunc('u', ind_in)
         self.sig_x_long = vfunc('x_long', ind_order)
@@ -307,7 +307,9 @@ class LtiSystem(object):
         self.sig_dx = vfunc('dx', ind_order)
         self.sig_y_long = vfunc('y_long', ind_out)
         
-        self.input_buffers = zip(self.sig_u, self.sig_in)
+        self.context['sig_in'] = sig_in
+        
+        self.input_buffers = zip(self.sig_u, sig_in)
         self.state_buffers = zip(self.sig_x, self.sig_x_long)
         self.outputs = zip(self.sig_out, self.sig_y_long)
         self.deltas = zip(self.sig_x_long, self.sig_dx)
