@@ -1,6 +1,15 @@
 module {{ name }} #
 (
-    {% for p in params %}
+    {% for p in A_params %}
+    parameter signed [CW-1:0] {{ p["name"] }} = {{ p["value"] }}, 
+    {% endfor %}
+    {% for p in B_params %}
+    parameter signed [CW-1:0] {{ p["name"] }} = {{ p["value"] }}, 
+    {% endfor %}
+    {% for p in C_params %}
+    parameter signed [CW-1:0] {{ p["name"] }} = {{ p["value"] }}, 
+    {% endfor %}
+    {% for p in D_params %}
     parameter signed [CW-1:0] {{ p["name"] }} = {{ p["value"] }}, 
     {% endfor %}
     parameter IW = {{ iw }},
@@ -25,6 +34,10 @@ module {{ name }} #
 
     reg ce_mul;
     reg ce_buf;
+    {% for s in reg_ce_add %}
+    reg {{ s }};
+    {% endfor %}
+
     {% for s in sig_u %}
     reg signed [SW-1:0] {{ s }};
     {% endfor %}
@@ -40,11 +53,23 @@ module {{ name }} #
     {% for s in sig_y_long %}
     reg signed [RW-1:0] {{ s }};
     {% endfor %}
-    {% for s in sig_prod %}
+    {% for s in A_sig_prod %}
+    reg signed [RW-1:0] {{ s }};
+    {% endfor %}
+    {% for s in B_sig_prod %}
+    reg signed [RW-1:0] {{ s }};
+    {% endfor %}
+    {% for s in C_sig_prod %}
+    reg signed [RW-1:0] {{ s }};
+    {% endfor %}
+    {% for s in D_sig_prod %}
     reg signed [RW-1:0] {{ s }};
     {% endfor %}
     
-    {% for s in sig_add %}
+    {% for s in state_sig_add %}
+    reg signed [RW-1:0] {{ s }};
+    {% endfor %}
+    {% for s in output_sig_add %}
     reg signed [RW-1:0] {{ s }};
     {% endfor %}
     
@@ -55,7 +80,7 @@ module {{ name }} #
         ce_buf <= ce_in;
         if(ce_in) begin
             {% for ib in input_buffers %}
-            {{ ib[0] }} <= $signed({{ ib[1] }})
+            {{ ib[0] }} <= $signed({{ ib[1] }});
             {% endfor %}
             {% for sb in state_buffers %}
             {{ sb[0] }} <= {{ sb[1] }}[SW+CF-1:CF];
@@ -68,8 +93,17 @@ module {{ name }} #
     **************************************************************************/
     always @(posedge clk) begin
         ce_mul <= ce_buf;
-        {% for p in prods %}
-        {{ p["o"] }} <= {{ p["a"] }} * {{ p["b"] }} 
+        {% for p in A_prods %}
+        {{ p["o"] }} <= {{ p["a"] }} * {{ p["b"] }};
+        {% endfor %}
+        {% for p in B_prods %}
+        {{ p["o"] }} <= {{ p["a"] }} * {{ p["b"] }};
+        {% endfor %}
+        {% for p in C_prods %}
+        {{ p["o"] }} <= {{ p["a"] }} * {{ p["b"] }};
+        {% endfor %}
+        {% for p in D_prods %}
+        {{ p["o"] }} <= {{ p["a"] }} * {{ p["b"] }};
         {% endfor %}
     end
 
@@ -78,8 +112,14 @@ module {{ name }} #
     * The adder.
     **************************************************************************/
     always @(posedge clk) begin
-        {% for exp in adders %}
-        {{ exp[0] }} <= {{ exp[1] }}
+        {% for exp in adder_ce %}
+        {{ exp[0] }} <= {{ exp[1] }};
+        {% endfor %}
+        {% for exp in state_adders %}
+        {{ exp[0] }} <= {{ exp[1] }};
+        {% endfor %}
+        {% for exp in output_adders %}
+        {{ exp[0] }} <= {{ exp[1] }};
         {% endfor %}
     end
     
@@ -89,7 +129,7 @@ module {{ name }} #
     always @(posedge clk) begin
         if(ce_out) begin
             {% for d in deltas %}
-            {{ d[0] }} <= {{ d[0] }} + $signed({{ d[1] }}[RX-1:DEL]);
+            {{ d[0] }} <= {{ d[0] }} + $signed({{ d[1] }}[RW-1:DEL]);
             {% endfor %}
         end 
     end
@@ -98,7 +138,7 @@ module {{ name }} #
     * Quantization of system outputs.
     **************************************************************************/
     {% for o in outputs %}
-    assign {{ o[0] }} = {{ o[1] }}[OW+CF-1:CF]
+    assign {{ o[0] }} = {{ o[1] }}[OW+CF-1:CF];
     {% endfor %}
     
     initial begin
@@ -114,7 +154,16 @@ module {{ name }} #
         {% for s in sig_dx %}
         {{ s }} = 0;
         {% endfor %}
-        {% for s in sig_prod %}
+        {% for s in A_sig_prod %}
+        {{ s }} = 0;
+        {% endfor %}
+        {% for s in B_sig_prod %}
+        {{ s }} = 0;
+        {% endfor %}
+        {% for s in C_sig_prod %}
+        {{ s }} = 0;
+        {% endfor %}
+        {% for s in D_sig_prod %}
         {{ s }} = 0;
         {% endfor %}
     end

@@ -1,6 +1,6 @@
 class TimeDelay(object):
     
-    def __init__(self, dw, cycles, fclk):
+    def __init__(self, dw, cycles, fclk, verbose):
         """
         :param dw:      The data width of the shift register.
         :param taps:    The number of cycles to delay.
@@ -9,7 +9,8 @@ class TimeDelay(object):
         self.cycles = cycles
         self.dw = dw
         self.time = self.cycles / fclk
-        
-        print('The time delay is:', self.time)
+
+        if verbose is True:
+            print('The time delay is (s): ', self.time)
         
 

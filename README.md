@@ -3,6 +3,8 @@
 This library provides a set of class to automatically generate verilog code for
 a set of common signal processing and control functions.
 
+## Direct Digital Synthesizer
+
 ## Decimator
 
 The decimator reduces the sampling frequency of an input signal.
@@ -10,12 +12,11 @@ The decimator reduces the sampling frequency of an input signal.
 ```
 import controlinverilog as civ
 
-decimator = civ.Decimator(freq_in=100e6, 
-                          top=9, 
+decimator = civ.Decimator(freq_in=100e6,
+                          top=9,
                           dw=16)
-                          
 decimator.print_summary()
-decimator.print_verilog('decimator.v')
+decimator.print_verilog('example_decimator.v')
 ```
 
 | parameter | type    | description                                      |
@@ -23,6 +24,11 @@ decimator.print_verilog('decimator.v')
 | `freq_in` | float   | The sampling frequency of the input signal.      |
 | `top`     | int     | The decimation factor is (top + 1).              |
 | `dw`      | int     | The word size of the datapath.                   |
+
+
+## Integrator
+
+## LTI System
 
 ## Nonlinear Function
 
@@ -37,3 +43,29 @@ hdl_nonlinear = civ.NonlinearFunction(func, iw, if_)
 hdl_nonlinear.print_summary()
 hdl_nonlinear.print_verilog('nonlinear_function.v')
 ```
+
+## Saturation
+
+Saturation reduces the word length of the signal by limiting the range and removing
+a number of the most significant bits.
+
+```
+import controlinverilog as civ
+
+saturation = civ.Saturation(name='example_saturation',
+                            input_word_length=22,
+                            input_frac_length=10,
+                            output_word_length=16,
+                            verbose=True)
+saturation.print_verilog('example_saturation.v')
+```
+
+| parameter            | type   | description                                         |
+| -------------------- | ------ | --------------------------------------------------- |
+| `name`               | string | The name of the verilog module.                     |
+| `input_word_length`  | int    | The word length of the input signal.                |
+| `input_frac_length`  | int    | The fraction word length of the signal.             |
+| `output_word_length` | int    | The reduced word length of the signal.              |
+| `verbose`            | bool   | True to print out details of the saturation module. |
+
+## Time Delay

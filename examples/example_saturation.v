@@ -1,7 +1,7 @@
-module {{ name }} #
+module example_saturation #
 (
-    parameter IW = {{ iw }},
-    parameter OW = {{ ow }}
+    parameter IW = 22,
+    parameter OW = 16
 ) 
 (
     input wire [IW-1:0] sig_in,

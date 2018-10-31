@@ -1,78 +1,80 @@
 import numpy as np
 from scipy import linalg
-from scipy import signal
-from .state_space import StateSpace
 
 
-def _hamiltonian_matrix_continuous(g, sys):
-    
-    A, B, C, D = sys.params
-    r, c = D.shape
-    R = D.T.dot(D) - g * g * np.identity(c)
-    S = D.dot(D.T) - g * g * np.identity(r)
-    Rinv = linalg.inv(R)
-    Sinv = linalg.inv(S)
-    H11 = A - B.dot(Rinv).dot(D.T).dot(C)
-    H12 = -g * B.dot(Rinv).dot(B.T)
-    H21 = g * C.T.dot(Sinv).dot(C)
-    H22 = -A.T + C.T.dot(D).dot(Rinv).dot(B.T)
-    Hg = np.vstack((np.hstack((H11, H12)), np.hstack((H21, H22))))
-    return Hg
+# from scipy import signal
+# from .state_space import StateSpace
+
+def _eval_tf(a, b, c, d, p):
+    return c @ linalg.inv(p * np.identity(a.shape[0]) - a) @ b + d
 
 
-def _matrices_discrete(g, sys):
-    
-    A, B, C, D = sys.params
-    R = D.T @ D - g * g * np.identity(sys.n_input)
-    Rinv = linalg.inv(R)
-    m11 = np.identity(sys.n_order)
-    m12 = np.zeros((sys.n_order, sys.n_order))
-    m21 = C.T @ (np.identity(sys.n_input) - D @ Rinv @ D.T) @ C
-    m22 = -(A + B @ Rinv @ D.T @ C).T
+def _hamiltonian_matrix_continuous(g, mat_a, mat_b, mat_c, mat_d):
+    # A, B, C, D = sys.params
+    r, c = mat_d.shape
+    mat_r = mat_d.T.dot(mat_d) - g * g * np.identity(c)
+    mat_s = mat_d.dot(mat_d.T) - g * g * np.identity(r)
+    mat_r_inv = linalg.inv(mat_r)
+    mat_s_inv = linalg.inv(mat_s)
+    h11 = mat_a - mat_b.dot(mat_r_inv).dot(mat_d.T).dot(mat_c)
+    h12 = -g * mat_b.dot(mat_r_inv).dot(mat_b.T)
+    h21 = g * mat_c.T.dot(mat_s_inv).dot(mat_c)
+    h22 = -mat_a.T + mat_c.T.dot(mat_d).dot(mat_r_inv).dot(mat_b.T)
+    mat_hg = np.vstack((np.hstack((h11, h12)), np.hstack((h21, h22))))
+    return mat_hg
+
+
+def _matrices_discrete(g, mat_a, mat_b, mat_c, mat_d):
+    # A, B, C, D = sys.params
+    n_order, n_input = mat_b.shape
+    mat_r = mat_d.T @ mat_d - g * g * np.identity(n_input)
+    mat_r_inv = linalg.inv(mat_r)
+    m11 = np.identity(n_order)
+    m12 = np.zeros((n_order, n_order))
+    m21 = mat_c.T @ (np.identity(n_input) - mat_d @ mat_r_inv @ mat_d.T) @ mat_c
+    m22 = -(mat_a + mat_b @ mat_r_inv @ mat_d.T @ mat_c).T
     m_mat = np.vstack((np.hstack((m11, m12)), np.hstack((m21, m22))))
-    l11 = A + B @ Rinv @ D.T @ C
-    l12 = B @ Rinv @ B.T
-    l21 = np.zeros((sys.n_order, sys.n_order))
-    l22 = np.identity(sys.n_order)
+    l11 = mat_a + mat_b @ mat_r_inv @ mat_d.T @ mat_c
+    l12 = mat_b @ mat_r_inv @ mat_b.T
+    l21 = np.zeros((n_order, n_order))
+    l22 = np.identity(n_order)
     l_mat = np.vstack((np.hstack((l11, l12)), np.hstack((l21, l22))))
     return m_mat, l_mat
 
-    
-def _initial_glb(sys):
-    
-    A, B, C, D = sys.params
-    poles, _ = linalg.eig(A)
+
+def _initial_glb(mat_a, mat_b, mat_c, mat_d):
+    # A, B, C, D = sys.params
+    poles, _ = linalg.eig(mat_a)
     pabs = np.abs(poles)
-    
-    if all(np.isreal(poles)) == True:
+
+    if all(np.isreal(poles)):
         wp = min(pabs)
     else:
-        weight = np.abs(np.imag(poles) / (np.real(poles) * poles)) 
+        weight = np.abs(np.imag(poles) / (np.real(poles) * poles))
         wp, _ = max(zip(pabs, weight), key=lambda x: x[1])
-    
-    G0 = sys.transfer_function(0)
-    Gwp = sys.transfer_function(1j*wp)
-    
+
+    g0 = _eval_tf(mat_a, mat_b, mat_c, mat_d, 0)
+    gwp = _eval_tf(mat_a, mat_b, mat_c, mat_d, 1j * wp)
+
     sig = []
-    for tf in (G0, Gwp, D):
+    for tf in (g0, gwp, mat_d):
         _, s, _ = linalg.svd(tf)
         sig.append(max(s))
-    
+
     glb = max(sig)
     return glb
 
 
-def _initial_glb_discrete(sys):
-    
-    poles = sys.poles()
+def _initial_glb_discrete(az, bz, cz, dz):
+    poles, _ = linalg.eig(az)
     phip = np.angle(poles[np.argmax(np.abs(poles))])
     phis = np.array([0.0, phip, np.pi])
-    
+
     def max_sv(phi):
-        tf = sys.transfer_function(np.exp(1j*phi))
+        tf = _eval_tf(az, bz, cz, dz, np.exp(1j * phi))
         _, sv, _ = linalg.svd(tf)
         return max(sv)
-    
+
     vfunc = np.vectorize(max_sv)
     glb = max(vfunc(phis))
     return glb
@@ -85,14 +87,13 @@ def _robust_no_imaginary(x_vals):
     no_imaginary : bool
         True if all values are not imaginary, otherwise False.
     only_imag : list of float
-        Returns the imaginary components of the imaginary values. 
-        The list is sorted.
+        Returns the imaginary components of the imaginary values. The list is sorted.
     """
     x_imag = np.imag(x_vals)
-    is_imag = np.isclose(1j*x_imag, x_vals, rtol=1e-12, atol=1e-8)
+    is_imag = np.isclose(1j * x_imag, x_vals, rtol=1e-12, atol=1e-8)
     only_imag = []
     for (is_, xi) in zip(is_imag, x_imag):
-        if is_ == True:
+        if is_:
             only_imag.append(xi)
     no_imaginary = len(only_imag) == 0
     return no_imaginary, sorted(only_imag)
@@ -106,31 +107,29 @@ def _robust_no_unit(x_vals):
         The array of values to test if they are on the unit circle.
     """
     x_phis = np.angle(x_vals)
-    is_unit = np.isclose(np.exp(1j*x_phis), x_vals, rtol=1e-12, atol=1e-8)
+    is_unit = np.isclose(np.exp(1j * x_phis), x_vals, rtol=1e-12, atol=1e-8)
     only_unit = x_phis[is_unit]
     no_unit = only_unit.shape[0] == 0
     return no_unit, np.sort(only_unit)
 
 
-def _find_new_lower_bound(wi, sys):
-    
+def _find_new_lower_bound(wi, mat_a, mat_b, mat_c, mat_d):
     si = []
-    for i in range(len(wi)-1):
-        mi = 0.5 * (wi[i] + wi[i+1])
-        Gw = sys.transfer_function(1j*mi)
-        _, s, _ = linalg.svd(Gw)
-        si.append(max(s))            
+    for i in range(len(wi) - 1):
+        mi = 0.5 * (wi[i] + wi[i + 1])
+        gw = _eval_tf(mat_a, mat_b, mat_c, mat_d, 1j * mi)
+        _, s, _ = linalg.svd(gw)
+        si.append(max(s))
     glb = max(si)
     return glb
 
 
-def _find_new_lower_bound_discrete(phis, sys):
-    
+def _find_new_lower_bound_discrete(phis, az, bz, cz, dz):
     def max_sv(mi):
-        Gw = sys.transfer_function(np.exp(1j*mi))
-        _, sv, _ = linalg.svd(Gw)
+        gw = _eval_tf(az, bz, cz, dz, np.exp(1j * mi))
+        _, sv, _ = linalg.svd(gw)
         return max(sv)
-        
+
     mis = np.diff(phis)
     vfunc = np.vectorize(max_sv)
     svs = vfunc(mis)
@@ -138,108 +137,112 @@ def _find_new_lower_bound_discrete(phis, sys):
     return glb
 
 
-def norm_hinf_continuous(sys):
+def norm_hinf_continuous(ac, bc, cc, dc):
     """
-    Reference:    
-    A fast algorithm to compute the H$\infty$-norm of a transfer function 
-    matrix, N.A. Bruinsma and M. Steinbuch, Systems \&amp; Control Letters,
-    1990, 14(4) pp. 287 - 293, 10.1016/0167-6911(90)90049-Z
+    Reference
+    ---------
+    A fast algorithm to compute the H∞-norm of a transfer function matrix; N.A. Bruinsma and M. Steinbuch;
+    Systems & Control Letters, 1990, 14(4) pp. 287 - 293, 10.1016/0167-6911(90)90049-Z
     """
-    glb, gub = _initial_glb(sys), 0
+    glb, gub = _initial_glb(ac, bc, cc, dc), 0
     no_imaginary = False
     eps = 1e-8
-    
-    while no_imaginary == False:
+
+    while no_imaginary is False:
         g = (1 + 2 * eps) * glb
-        Hg = _hamiltonian_matrix_continuous(g, sys)
-        e, _ = linalg.eig(Hg)
+        hg = _hamiltonian_matrix_continuous(g, ac, bc, cc, dc)
+        e, _ = linalg.eig(hg)
         no_imaginary, wi = _robust_no_imaginary(e)
-        if no_imaginary == True:
+        if no_imaginary is True:
             gub = g
         else:
-            glb = _find_new_lower_bound(wi, sys)
-            
+            glb = _find_new_lower_bound(wi, ac, bc, cc, dc)
+
     norm = 0.5 * (glb + gub)
     return norm
 
 
-def norm_hinf_discrete(sys):
+def norm_hinf_discrete(az, bz, cz, dz):
     """
-    Reference:
-    L∞-norm calculation for generalized state space systems in continuous and 
-    discrete time, P. M. M. Bongers and O. H. Bosgra and M. Steinbuch,
-    1991 American Control Conference, 10.23919/ACC.1991.4791655
-    
-    Parameters
-    ----------
-    sys : controlinverilog.StateSpace
-    
+    Reference
+    ---------
+    L∞-norm calculation for generalized state space systems in continuous and discrete time; P. M. M. Bongers and
+    O. H. Bosgra and M. Steinbuch; 1991 American Control Conference, 10.23919/ACC.1991.4791655
+
     Returns
     -------
     norm : float
         H∞ norm of the system.
     """
-    glb, gub, no_unit, eps = _initial_glb_discrete(sys), 0, False, 1e-8
+    glb, gub, no_unit, eps = _initial_glb_discrete(az, bz, cz, dz), 0, False, 1e-8
 
-    while no_unit == False:
+    while no_unit is False:
         g = (1 + 2 * eps) * glb
-        m_mat, l_mat = _matrices_discrete(g, sys)
+        m_mat, l_mat = _matrices_discrete(g, az, bz, cz, dz)
         e, _ = linalg.eig(m_mat, l_mat)
         no_unit, phis = _robust_no_unit(e)
-        if no_unit == True:
+        if no_unit is True:
             gub = g
         else:
-            glb = _find_new_lower_bound_discrete(phis, sys)
-            
+            glb = _find_new_lower_bound_discrete(phis, az, bz, cz, dz)
+
     norm = 0.5 * (glb + gub)
     return norm
 
 
-def norm_h2_continuous(sys):
+def norm_h2_continuous(ac, bc, cc):
     """
     Numerically computes the H2 norm of a LTI continuous time system.
     
     Parameters
     ----------
-    sys : controlinverilog.StateSpace
-        The state space matrices (A, B, C, D).
+    ac : ndarray
+        The state update matrix.
+    bc : ndarray
+        The input matrix.
+    cc : ndarray
+        The output matrix.
         
     Returns
     -------
     norm : float
-        The H$_2$ norm.
+        The H2 norm.
     """
-    A, B, C, D = sys.params
-    W0 = observability_gramian_continuous(A, C)
-    norm = np.sqrt(np.trace(B.T @ W0 @ B))
+    # A, B, C, D = sys.params
+    wo = observability_gramian_continuous(ac, cc)
+    norm = np.sqrt(np.trace(bc.T @ wo @ bc))
     return norm
 
 
-def norm_h2_discrete(sys):
+def norm_h2_discrete(az, bz, cz):
     """
-    Numerically computes the H$_2$ norm of a LTI discrete time system using 
-    the shift operator.
+    Numerically computes the H2 norm of a LTI discrete time system.
     
     Parameters
     ----------
-    sys : tuple of ndarray
-        The state space matrices (A, B, C, D).
+    az : ndarray
+        The state update matrix.
+    bz : ndarray
+        The input matrix.
+    cz : ndarray
+        The output matrix.
         
     Returns
     -------
     norm : float
         The H$_2$ norm.
     """
-    A, B, C, D = sys.params
-    if sys.delta is not None:
-        A, B = (np.identity(sys.n_order) + sys.delta * A), sys.delta * B 
-    W0 = observability_gramian_discrete(A, C)
-    norm = np.sqrt(np.trace(B.T @ W0 @ B))
+    # if sys.is_delta():
+    #     sys = sys.delta2shift()
+    # A, B, C, D = sys.params
+    wo = observability_gramian_discrete(az, cz)
+    norm = np.sqrt(np.trace(bz.T @ wo @ bz))
     return norm
 
 
-def lqr(A, B, Q, R):
-    """Solve the continuous time lqr controller.
+def lqr_continuous(mat_a, mat_b, mat_q, mat_r):
+    """
+    Solve the continuous time lqr controller.
     
     dx/dt = A x + B u
         
@@ -247,241 +250,135 @@ def lqr(A, B, Q, R):
 
     Parameters
     ----------
-    A : ndarray
+    mat_a : ndarray
         The system state matrix.
-    B : ndarray
+    mat_b : ndarray
         The system input matrix.
-    Q : ndarray
+    mat_q : ndarray
         The weighting matrix for the states.
-    R : ndarray
+    mat_r : ndarray
         The weighting matrix for the control action.
         
     Returns
     -------
-    K : ndarray
+    mat_k : ndarray
         The state feedback matrix.
-    P : ndarray
+    mat_p : ndarray
         The solution to the Algebraic Ricatti Equation.
     w : ndarray
         The eigenvalues of the closed loop system.
     """
-    P = linalg.solve_continuous_are(A, B, Q, R)
-    Rinv = linalg.inv(R)
-    K = Rinv.dot(B.T).dot(P) 
-    w, _ = linalg.eig(A - B.dot(K))
-    return K, P, w
+    mat_p = linalg.solve_continuous_are(mat_a, mat_b, mat_q, mat_r)
+    mat_r_inv = linalg.inv(mat_r)
+    mat_k = mat_r_inv.dot(mat_b.T).dot(mat_p)
+    w, _ = linalg.eig(mat_a - mat_b.dot(mat_k))
+    return mat_k, mat_p, w
 
 
-def controllability_gramian_continuous(A, B):
-    """Calculates the controllabilty gramian of a continuous time LTI system.
+def controllability_gramian_continuous(mat_a, mat_b):
+    """
+    Calculates the controllabilty gramian of a continuous time LTI system.
     
     Parameters
     ----------
-    A : ndarray
+    mat_a : ndarray
         The state matrix.
-    B : ndarray
+    mat_b : ndarray
         The input matrix.
         
     Returns
     -------
-    Wc : ndarray
+    mat_wc : ndarray
         The controllability gramian.
     """
-    Q = -B @ B.T
-    Wc = linalg.solve_continuous_lyapunov(A, Q)
-    return Wc
+    mat_q = -mat_b @ mat_b.T
+    mat_wc = linalg.solve_continuous_lyapunov(mat_a, mat_q)
+    return mat_wc
 
 
-def controllability_gramian_discrete(A, B):
-    """Calculates the controllabilty gramian of a discrete time LTI system.
+def controllability_gramian_discrete(mat_a, mat_b):
+    """
+    Calculates the controllabilty gramian of a discrete time LTI system.
     
     Parameters
     ----------
-    A : ndarray
+    mat_a : ndarray
         The state matrix.
-    B : ndarray
+    mat_b : ndarray
         The input matrix.
         
     Returns
     -------
-    Wc : ndarray
+    mat_wc : ndarray
         The controllability gramian.
     """
-    Q = B @ B.T
-    Wc = linalg.solve_discrete_lyapunov(A, Q)
-    return Wc
+    mat_q = mat_b @ mat_b.T
+    mat_wc = linalg.solve_discrete_lyapunov(mat_a, mat_q)
+    return mat_wc
 
 
-def observability_gramian_continuous(A, C):
-    """Calculates the observability gramian of a continuous time LTI system.
+def observability_gramian_continuous(mat_a, mat_c):
+    """
+    Calculates the observability gramian of a continuous time LTI system.
     
     Parameters
     ----------
-    A : ndarray
+    mat_a : ndarray
         The state matrix.
-    C : ndarray
+    mat_c : ndarray
         The output matrix.
         
     Returns
     -------
-    Wo : ndarray
+    mat_wo : ndarray
         The observability gramian.
     """
-    Q = -C.T @ C
-    Wo = linalg.solve_continuous_lyapunov(A.T, Q)
-    return Wo
+    mat_q = -mat_c.T @ mat_c
+    mat_wo = linalg.solve_continuous_lyapunov(mat_a.T, mat_q)
+    return mat_wo
 
 
-def observability_gramian_discrete(A, C):
-    """Calculates the observability gramian of a discrete time LTI system.
+def observability_gramian_discrete(mat_a, mat_c):
+    """
+    Calculates the observability gramian of a discrete time LTI system.
     
     Parameters
     ----------
-    A : ndarray
+    mat_a : ndarray
         The state matrix.
-    C : ndarray
+    mat_c : ndarray
         The output matrix.
         
     Returns
     -------
-    Wc : ndarray
+    mat_wo : ndarray
         The observability gramian.
     """
-    Q = C.T @ C
-    Wo = linalg.solve_discrete_lyapunov(A.T, Q)
-    return Wo
+    mat_q = mat_c.T @ mat_c
+    mat_wo = linalg.solve_discrete_lyapunov(mat_a.T, mat_q)
+    return mat_wo
 
 
-def balanced_realization_discrete(sys):
-    
-    if not sys.is_shift():
-        msg = 'Balanced realization for shift operator only.'
-        raise ValueError(msg)
-    
-    A, B, C, D = sys.params
-    P = controllability_gramian_discrete(A, B)
-    Q = observability_gramian_discrete(A, C)
-    R = linalg.cholesky(P, lower=True)
-    RtranQR = R.T.dot(Q).dot(R)
-    U, s, _ = linalg.svd(RtranQR)
+def balanced_realization_discrete(az, bz, cz, dz):
+    # if not sys.is_shift():
+    #     msg = 'Balanced realization for shift operator only.'
+    #     raise ValueError(msg)
+
+    # A, B, C, D = sys.params
+    mat_p = controllability_gramian_discrete(az, bz)
+    mat_q = observability_gramian_discrete(az, cz)
+    mat_r = linalg.cholesky(mat_p, lower=True)
+    rtran_qr = mat_r.T @ mat_q @ mat_r
+    mat_u, s, _ = linalg.svd(rtran_qr)
     ssqrtsqrt = np.sqrt(np.sqrt(s))
-    SigmaSqrtInv = np.diag(np.reciprocal(ssqrtsqrt))
+    sigma_sqrt_inv = np.diag(np.reciprocal(ssqrtsqrt))
     # SigmaSqrt = np.diag(np.sqrt(np.sqrt(s)))
-    T = R.dot(U).dot(SigmaSqrtInv)
-    Tinv = linalg.inv(T)
-    # Tinv = SigmaSqrt.dot(U.T).dot(linalg.inv(R))
-    Ab = Tinv.dot(A).dot(T)
-    Bb = Tinv.dot(B)
-    Cb = C.dot(T)
-    Db = D
-    return StateSpace(Ab, Bb, Cb, Db, dt=sys.dt)
-
-
-
-def time_constant(sys, dt):
-    """
-    Returns
-    -------
-    tc : float
-        The time constant of the slowest pole in the system.
-    """
-    A = sys[0]
-    zeig = linalg.eigvals(A)
-    zeig = zeig[np.nonzero(zeig)]
-    seig = np.log(zeig)/dt
-    r = min(abs(np.real(seig)))
-    if r == 0.0:
-        raise ValueError('The system needs to be asymtotically stable.')
-    tc = 1.0 / r
-    return tc
-
-
-def step_response(sys, dt):
-    
-    A, B, C, D = sys
-    tc = time_constant(sys, dt)
-    n = round(7 * tc / dt)
-    t, y = signal.dstep((A, B, C, D, dt), n=n)
-    return t, np.squeeze(y)
-
-
-def impulse_response(sys, n_tc=7):
-    
-    A, B, C, D = sys.coeffs
-    if sys.delta is not None:
-        A, B = (np.identity(sys.n_order) + sys.delta * A), sys.delta * B 
-    ev, _ = linalg.eig(A)
-    tc = time_constant(sys, sys.dt)
-    n = round(n_tc * tc / sys.dt)
-    t, y = signal.dstep((A, B, C, D, sys.dt), n=n)
-    return t, np.squeeze(y)
-
-
-def overshoot(sys, dt):
-    """
-    Returns
-    -------
-    The overshoot due to a unit step of the system.
-    """
-    _, y = step_response(sys, dt)
-    return np.amax(np.squeeze(y))
-
-
-def safe_gain(sys, dt):
-    """
-    
-    gain = sum(|f[k]|)
-    
-    where f[k] is the impulse response of the system. To evaluate the impulse
-    response, the system is simulated for 20x the time constant of the slowest
-    pole of the system.
-    """
-    A, B, C, D = sys
-    tc = time_constant(sys, dt)
-    n = round(20 * tc / dt)
-    _, y = signal.dimpulse((A, B, C, D, dt), n=n)
-    gain = np.sum(np.abs(y))
-    return gain
-
-
-def metric_h2(sys, sys_q):
-    
-    sys_diff = sys - sys_q
-    return norm_h2_discrete(sys_diff) / norm_h2_discrete(sys)
-
-
-def metric_hinf(sys, sys_q):
-    
-    sys_diff = sys - sys_q
-    return norm_hinf_discrete(sys_diff) / norm_hinf_discrete(sys)
-
-
-def metric_pole(sys, sys_q):
-    """Calculates the maximum difference between the poles of the system and 
-    its quantized version.
-    """
-    poles = sys.poles()
-    poles_q = sys_q.poles()
-    metric = 0
-    for ii in range(sys.n_order):
-        diff_vec = np.abs(poles[ii] - poles_q) / np.abs(poles[ii])
-        idx = np.argmin(diff_vec)
-        if metric < diff_vec[idx]:
-            metric = diff_vec[idx]
-        poles_q = np.delete(poles_q, idx)
-    return metric
-    
-
-def metric_impulse(sys, sys_q):
-    """The size of the impulse is measured using the l2 norm. This metric only
-    considers SISO systems.
-    """        
-    if not sys.is_siso():
-        message = 'cof_scaling_method `impulse` only for SISO systems.'
-        raise ValueError(message)
-    sys_diff = sys - sys_q
-    _, y = impulse_response(sys, n_tc=20.0)
-    _, yd = impulse_response(sys_diff, n_tc=20.0)
-    y, yd = y[0], yd[0]
-    return np.sqrt(np.sum(yd * yd) / np.sum(y * y))
-
+    mat_t = mat_r @ mat_u @ sigma_sqrt_inv
+    mat_t_inv = linalg.inv(mat_t)
+    # mat_t_inv = SigmaSqrt.dot(mat_u.mat_t).dot(linalg.inv(mat_r))
+    ab = mat_t_inv @ az @ mat_t
+    bb = mat_t_inv @ bz
+    cb = cz @ mat_t
+    db = dz
+    # return StateSpace(ab, bb, cb, db, dt=sys.dt)
+    return ab, bb, cb, db

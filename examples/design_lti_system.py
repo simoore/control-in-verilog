@@ -12,13 +12,7 @@ C = np.array([[-72.2415,   89.3518,   56.2813,  -20.0667]])
 D = [[0.0]]
 
 
-lti = civ.LtiSystem(name='lti_system', 
+lti = civ.LtiSystem(name='example_lti_system',
                     fs=122.88e6, 
-                    sys=(A, B, C, D), 
-                    iw=16, 
-                    if_=14, 
-                    of=14, 
-                    sf=14, 
-                    n_add=3)
-lti.print_summary()
-lti.print_verilog('lti_system.v')
+                    sys=(A, B, C, D))
+lti.print_verilog('example_lti_system.v')
