@@ -7,5 +7,10 @@
     
 # Extensions
 
+* Option to enable/disable interpolation in DDS.
 * Add state machine template.
 * Add tree adder template.
+
+# Checklist
+
+* DDS: python module, example, testbench

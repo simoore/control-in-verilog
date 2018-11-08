@@ -1,4 +1,4 @@
-module nonlinear_function #
+module example_nonlinear_function #
 (
     parameter IW = 11,
     parameter OW = 14,
