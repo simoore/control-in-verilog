@@ -1,7 +1,7 @@
-module {{ name }} #
+module example_delay #
 (
-    parameter DW = {{ dw }},  // data word length
-    parameter AW = {{ aw }}   // buffer address word length
+    parameter DW = 16,  // data word length
+    parameter AW = 8   // buffer address word length
 )(
     input wire clk,
     input wire ce_in,

@@ -1,6 +1,9 @@
 import controlinverilog as civ
 
-freq_in, top, dw = 100e6, 9, 16
-
-decimator = civ.TimeDelay(freq_in, top, dw)
-decimator.print_verilog('decimator.v')
+delay = civ.TimeDelay(
+    name='example_delay',
+    aw=8,
+    dw=16
+)
+delay.print_summary()
+delay.print_verilog('example_delay.v')

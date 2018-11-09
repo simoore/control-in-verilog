@@ -2,15 +2,15 @@
 * If ki is the integral gain of the analog controller, KI = ki*Ts/2 is the gain
 * of the digital control where Ts is the sampling period.
 ******************************************************************************/
-module {{ name }} (clk, ce_in, sig_in, ce_out, sig_out);
+module example_integrator (clk, ce_in, sig_in, ce_out, sig_out);
 
-    parameter DW = {{ DW }};          // data word length
-    parameter CW = {{ CW }};          // coefficient word length
-    parameter CF = {{ CF }};          // coefficient fractional length
+    parameter DW = 24;          // data word length
+    parameter CW = 16;          // coefficient word length
+    parameter CF = 16;          // coefficient fractional length
     parameter IW = DW + CW;
-    parameter signed [CW-1:0] KI = {{ KI }};              
-    parameter signed [IW-1:0] MAX = {{ MAX }};
-    parameter signed [IW-1:0] MIN = {{ MIN }};
+    parameter signed [CW-1:0] KI = 16'sd98;              
+    parameter signed [IW-1:0] MAX = 40'sd412316860416;
+    parameter signed [IW-1:0] MIN = -40'sd412316860416;
 
     
     input wire clk; 

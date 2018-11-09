@@ -1,4 +1,4 @@
-module decimator #
+module {{ NAME }} #
 (
     parameter [9:0] TOP = {{ TOP }},    // f_out = f_in / (TOP + 1)
     parameter DW = {{ DW }}

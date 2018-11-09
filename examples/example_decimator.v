@@ -1,4 +1,4 @@
-module decimator #
+module example_decimator #
 (
     parameter [9:0] TOP = 9,    // f_out = f_in / (TOP + 1)
     parameter DW = 16

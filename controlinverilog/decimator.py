@@ -3,12 +3,12 @@ import jinja2
 
 class Decimator(object):
 
-    def __init__(self, freq_in, top, dw):
+    def __init__(self, name, freq_in, top, dw):
 
         self.freq_out = freq_in / (top + 1)
         self.dw = dw
 
-        context = {'TOP': top, 'DW': dw}
+        context = {'NAME': name, 'TOP': top, 'DW': dw}
 
         loader = jinja2.PackageLoader('controlinverilog', 'templates')
         env = jinja2.Environment(loader=loader)
