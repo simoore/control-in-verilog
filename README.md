@@ -104,15 +104,23 @@ integrator.print_verilog('example_integrator.v')
         
 ## LTI System
 
+A module that implements an asymtotically stable linear time invariant 
+state space system. The module takes a continuous time state space system
+and produces the coffieicents, logic, word-lengths for a verilog 
+discretization of the system. 
+
+The continuous time system in the example below is a low pass filter.
+
 ```
 import numpy as np
 import controlinverilog as civ
 
 A = 1.0e+04 * np.array([
-   [-0.3728,    1.3891,    0.5511,   -0.2078],
-   [-1.3891,   -1.6962,   -2.5451,    0.7540],
-   [ 0.5511,    2.5451,   -4.1947,    3.1990],
-   [ 0.2078,    0.7540,   -3.1990,   -8.2078]])
+    [-0.3728,    1.3891,    0.5511,   -0.2078],
+    [-1.3891,   -1.6962,   -2.5451,    0.7540],
+    [ 0.5511,    2.5451,   -4.1947,    3.1990],
+    [ 0.2078,    0.7540,   -3.1990,   -8.2078]
+])
 B = np.array([[-72.2415], [-89.3518], [56.2813], [20.0667]])
 C = np.array([[-72.2415,   89.3518,   56.2813,  -20.0667]])
 D = [[0.0]]
@@ -120,9 +128,63 @@ D = [[0.0]]
 lti = civ.LtiSystem(
     name='example_lti_system',
     fs=122.88e6,
-    sys=(A, B, C, D))
-lti.print_verilog('example_lti_system.v') 
+    sys=(A, B, C, D),
+    operator='delta',
+    input_word_length=16,
+    input_frac_length=14,
+    cof_word_length=16,
+    cof_frac_length=15,
+    n_add=3,
+    cof_threshold=0.001,
+    sig_threshold=100,
+    sig_scaling_method='hinf',
+    cof_scaling_method='hinf',
+    verbose=True
+)
+lti.print_verilog('example_lti_system.v')
 ```
+
+| parameter          | type    | description                                      |
+| ------------------ | ------- | ------------------------------------------------ |
+| name               | string  | The module name.                                 |
+| fs                 | float   | The sampling frequency.                          |
+| sys                | tuple   | The continuous state space system (A,B,C,D).     |
+| operator           | string  | 'delta', or 'shift'.                             |
+| input_word_length  | int     | The input word length.                           |
+| input_frac_length  | int     | The input fractional length.                     |
+| cof_word_length    | int     | The coefficient word length when fixed.          |
+| cof_frac_length    | int     | The coefficient fractional length when fixed.    |
+| n_add              | int     | The maximum number of additions per cycle.       |
+| cof_threshold      | float   | A metric to set the coefficient format.          |
+| sig_threshold      | float   | A metric to set the state and output formats.    |
+| sig_scaling_method | string  | 'hinf', 'h2', 'overshoot', or 'safe'.            |
+| cof_scaling_method | string  | 'hinf', 'h2', 'pole', 'impulse, or 'fixed'.      | 
+| verbose            | bool    | To print information to console.                 |
+
+Coefficient format selection method: The range of the format is selected to
+accommodate the largest discrete time coefficient and the resolution is selected
+to minimize some measure of error between the unquantized and quantized system. The
+measures of error are:
+
+* The h-infinity norm - `hinf` 
+* The h-2 norm - `h2` 
+* Magnitude difference between poles - `pole`
+* l-2 norm of the impulse response - `impulse`
+
+Since the error should be small, `cof_threshold` is a small value. The `fixed` 
+method allows the coefficient format to be specified directly.
+
+Signal format selection method: The range of the format is selected to account for 
+the gain of the system both to the outputs and the states. The measures of gain are:
+
+* The h-infinity norm - `hinf` 
+* The h-2 norm - `h2` 
+* Maximum of the absolute value of the step response - `overshoot`
+* An upper bound on the signal - `safe`
+
+The resolution of the format is selected to ensure the dynamic range of the 
+respresentation is above a threshold in dB. Therefore `sig_threshold` needs
+to be a large number.
 
 ## Nonlinear Function
 
