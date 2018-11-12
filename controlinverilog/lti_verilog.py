@@ -18,6 +18,8 @@ class LtiVerilog(object):
                         'sw': params['sw'],
                         'cw': params['cw'],
                         'cf': params['cf'],
+                        'if_': params['if'],
+                        'sf': params['sf'],
                         'del': params['del_par']}
 
         mat_a, mat_b, mat_c, mat_d = sys.cofs

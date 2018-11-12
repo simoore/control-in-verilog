@@ -1,5 +1,6 @@
 module example_lti_system #
 (
+    parameter CW = 10,
     parameter signed [CW-1:0] A_1_1 = -16, 
     parameter signed [CW-1:0] A_1_2 = 59, 
     parameter signed [CW-1:0] A_1_3 = 24, 
@@ -27,11 +28,12 @@ module example_lti_system #
     parameter signed [CW-1:0] D_1_1 = 0, 
     parameter IW = 16,
     parameter OW = 20,
-    parameter CW = 10,
     parameter SW = 22,
-    parameter RW = SW + CW - 1,
     parameter CF = 9,
-    parameter DEL = 10
+    parameter SF = 18,
+    parameter IF = 14,
+    parameter DEL = 10,
+    parameter RW = SW + CW - 1
 )
 (
     input wire [IW-1:0] sig_in_1, 
@@ -102,7 +104,7 @@ module example_lti_system #
     always @(posedge clk) begin
         ce_buf <= ce_in;
         if(ce_in) begin
-            u_1 <= $signed(sig_in_1);
+            u_1 <= { {(SW-IW-SF+IF){ sig_in_1[IW-1]}}, sig_in_1, {(SF-IF){1'b0}} };
             x_1 <= x_long_1[SW+CF-1:CF];
             x_2 <= x_long_2[SW+CF-1:CF];
             x_3 <= x_long_3[SW+CF-1:CF];
@@ -167,14 +169,14 @@ module example_lti_system #
     end
     
     /**************************************************************************
-    * The delta operator.
+    * The delta/shift operator.
     **************************************************************************/
     always @(posedge clk) begin
         if(ce_out) begin
-            x_long_1 <= x_long_1 + $signed(dx_1[RW-1:DEL]);
-            x_long_2 <= x_long_2 + $signed(dx_2[RW-1:DEL]);
-            x_long_3 <= x_long_3 + $signed(dx_3[RW-1:DEL]);
-            x_long_4 <= x_long_4 + $signed(dx_4[RW-1:DEL]);
+            x_long_1 <= x_long_1 + { {(DEL){ dx_1[RW-1]}}, dx_1[RW-1:DEL] };
+            x_long_2 <= x_long_2 + { {(DEL){ dx_2[RW-1]}}, dx_2[RW-1:DEL] };
+            x_long_3 <= x_long_3 + { {(DEL){ dx_3[RW-1]}}, dx_3[RW-1:DEL] };
+            x_long_4 <= x_long_4 + { {(DEL){ dx_4[RW-1]}}, dx_4[RW-1:DEL] };
         end 
     end
   

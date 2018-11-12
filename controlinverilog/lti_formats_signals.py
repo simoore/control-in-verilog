@@ -173,7 +173,7 @@ class LtiFormatsSignals(object):
         def variance_single_output(idx):
             c_idx = mat_c[[idx], :]
             a_bar = mat_a
-            b_bar = np.hstack((mat_a, np.zeros(sys.n_order, 1)))
+            b_bar = np.hstack((mat_a, np.zeros((sys.n_order, 1))))
             c_bar = c_idx
             d_bar = np.hstack((c_idx, np.ones((1, 1))))
             sigma = np.identity(sys.n_order + 1) * var_e

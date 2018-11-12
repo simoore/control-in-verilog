@@ -95,8 +95,12 @@ class LtiFormatsCoefficients(object):
     @staticmethod
     def metric_h2(sys, sys_q):
 
+        if sys.is_delta() is True:
+            sys = sys.delta2shift()
+            sys_q = sys_q.delta2shift()
+
         sys_diff = sys - sys_q
-        if np.any(sys_diff.poles() == 0.0):
+        if np.any(sys_diff.poles() == 1.0):
             return np.inf
         a = mechatronics.norm_h2_discrete(*sys_diff.cofs)
         b = mechatronics.norm_h2_discrete(*sys.cofs)
@@ -105,8 +109,12 @@ class LtiFormatsCoefficients(object):
     @staticmethod
     def metric_hinf(sys, sys_q):
 
+        if sys.is_delta() is True:
+            sys = sys.delta2shift()
+            sys_q = sys_q.delta2shift()
+
         sys_diff = sys - sys_q
-        if np.any(sys_diff.poles() == 0.0):
+        if np.any(sys_diff.poles() == 1.0):
             return np.inf
         a = mechatronics.norm_hinf_discrete(*sys_diff.cofs)
         b = mechatronics.norm_hinf_discrete(*sys.cofs)
@@ -141,19 +149,3 @@ class LtiFormatsCoefficients(object):
         _, yd = sys_diff.discrete_siso_impulse_response(n_tc=20.0)
         y, yd = y[0], yd[0]
         return np.sqrt(np.sum(yd * yd) / np.sum(y * y))
-
-    # @staticmethod
-    # def impulse_response(sys, n_tc=7):
-    #     """
-    #
-    #     :param n_tc:
-    #     :return:
-    #     """
-    #     A, B, C, D = sys.params
-    #     if sys.delta is not None:
-    #         A, B = (np.identity(sys.n_order) + sys.delta * A), sys.delta * B
-    #     ev, _ = linalg.eig(A)
-    #     tc = time_constant(sys, sys.dt)
-    #     n = round(n_tc * tc / sys.dt)
-    #     t, y = signal.dstep((A, B, C, D, sys.dt), n=n)
-    #     return t, np.squeeze(y)

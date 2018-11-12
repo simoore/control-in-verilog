@@ -10,21 +10,23 @@ from .lti_formats_signals import LtiFormatsSignals
 
 class LtiSystem(object):
 
-    def __init__(self,
-                 name,
-                 fs,
-                 sys,
-                 input_word_length=16,
-                 input_frac_length=14,
-                 cof_word_length=16,
-                 cof_frac_length=15,
-                 n_add=3,
-                 cof_threshold=0.001,
-                 sig_threshold=100,
-                 operator='delta',
-                 sig_scaling_method='hinf',
-                 cof_scaling_method='hinf',
-                 verbose=True):
+    def __init__(
+        self,
+        name,
+        fs,
+        sys,
+        input_word_length=16,
+        input_frac_length=14,
+        cof_word_length=16,
+        cof_frac_length=15,
+        n_add=3,
+        cof_threshold=0.001,
+        sig_threshold=100,
+        operator='delta',
+        sig_scaling_method='hinf',
+        cof_scaling_method='hinf',
+        verbose=True
+    ):
         """
         Contructs the verilog code implementing an LTI system.
         
@@ -88,6 +90,10 @@ class LtiSystem(object):
         sig_params['verbose'] = verbose
         sig_formats = LtiFormatsSignals(sysm, sig_params, cof_formats)
 
+        assert sig_formats.state_frac_length - input_frac_length >= 0
+        assert (sig_formats.state_word_length - input_word_length
+                - sig_formats.state_word_length + input_word_length >= 0)
+
         verilog_params = dict()
         verilog_params['name'] = name
         verilog_params['n_add'] = n_add
@@ -96,6 +102,8 @@ class LtiSystem(object):
         verilog_params['sw'] = sig_formats.state_word_length
         verilog_params['cw'] = cof_formats.cof_word_length
         verilog_params['cf'] = cof_formats.cof_frac_length
+        verilog_params['if'] = input_frac_length
+        verilog_params['sf'] = sig_formats.state_frac_length
         verilog_params['del_par'] = del_par
 
         sysf = sysm.fixed_point_system(cof_formats.cof_frac_length)

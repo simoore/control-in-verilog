@@ -1,5 +1,6 @@
 module {{ name }} #
 (
+    parameter CW = {{ cw }},
     {% for p in A_params %}
     parameter signed [CW-1:0] {{ p["name"] }} = {{ p["value"] }}, 
     {% endfor %}
@@ -14,11 +15,14 @@ module {{ name }} #
     {% endfor %}
     parameter IW = {{ iw }},
     parameter OW = {{ ow }},
-    parameter CW = {{ cw }},
     parameter SW = {{ sw }},
-    parameter RW = SW + CW - 1,
     parameter CF = {{ cf }},
-    parameter DEL = {{ del }}
+    parameter SF = {{ sf }},
+    parameter IF = {{ if_ }},
+    {% if del is not none %}
+    parameter DEL = {{ del }},
+    {% endif %}
+    parameter RW = SW + CW - 1
 )
 (
     {% for i in sig_in %}
@@ -80,7 +84,7 @@ module {{ name }} #
         ce_buf <= ce_in;
         if(ce_in) begin
             {% for ib in input_buffers %}
-            {{ ib[0] }} <= $signed({{ ib[1] }});
+            {{ ib[0] }} <= { {(SW-IW-SF+IF){ {{ ib[1] }}[IW-1]}}, {{ ib[1] }}, {(SF-IF){1'b0}} };
             {% endfor %}
             {% for sb in state_buffers %}
             {{ sb[0] }} <= {{ sb[1] }}[SW+CF-1:CF];
@@ -124,12 +128,16 @@ module {{ name }} #
     end
     
     /**************************************************************************
-    * The delta operator.
+    * The delta/shift operator.
     **************************************************************************/
     always @(posedge clk) begin
         if(ce_out) begin
             {% for d in deltas %}
-            {{ d[0] }} <= {{ d[0] }} + $signed({{ d[1] }}[RW-1:DEL]);
+            {% if del is not none %}
+            {{ d[0] }} <= {{ d[0] }} + { {(DEL){ {{ d[1] }}[RW-1]}}, {{ d[1] }}[RW-1:DEL] };
+            {% else %}
+            {{ d[0] }} <= {{ d[1] }};
+            {% endif %}
             {% endfor %}
         end 
     end
