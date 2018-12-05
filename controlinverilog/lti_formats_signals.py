@@ -36,7 +36,15 @@ class LtiFormatsSignals(object):
 
         method = params['sig_scaling_method']
         metric = self._select_signal_scaling_method(method)
-        self._sf, self._of, self._rf, self._sw, self._ow, self._rw = self._set_signal_format(metric, system)
+        if metric is None:
+            self._sf = params['state_frac_length']
+            self._sw = params['state_word_length']
+            self._of = params['output_frac_length']
+            self._ow = params['output_word_length']
+        else:
+            self._sf, self._of, self._sw, self._ow = self._set_signal_format(metric, system)
+        self._rw = self._cw + self._sw - 1
+        self._rf = self._cf + self._sf
 
     @property
     def state_frac_length(self):
@@ -64,6 +72,9 @@ class LtiFormatsSignals(object):
 
     def _select_signal_scaling_method(self, method):
 
+        if method == 'fixed':
+            return None
+        
         funcs = {'hinf': self._discrete_siso_hinf_gain,
                  'h2': self._discrete_siso_h2_gain,
                  'overshoot': self._discrete_siso_overshoot_gain,
@@ -104,10 +115,8 @@ class LtiFormatsSignals(object):
 
         ow = self._iw + no + of - self._if
         sw = self._iw + ns + sf_ - self._if
-        rw = self._cw + sw - 1
-        rf = self._cf + sf_
 
-        return sf_, of, rf, sw, ow, rw
+        return sf_, of, sw, ow
 
     @staticmethod
     def _discrete_siso_overshoot_gain(sys):
@@ -262,10 +271,10 @@ class LtiFormatsSignals(object):
         a0, b0, c0, d0 = sys.cofs
 
         def output_system(idx):
-            b = b0 @ np.ones((sys.n_input, 1))
-            c = c0[[idx], :]
-            d = d0[[idx], :]
-            sys_out = StateSpace((a0, b, c, d), dt=sys.dt, delta=sys.delta)
+            bn = b0 @ np.ones((sys.n_input, 1))
+            cn = c0[[idx], :]
+            dn = d0[[idx], :] @ np.ones((sys.n_input, 1))
+            sys_out = StateSpace((a0, bn, cn, dn), dt=sys.dt, delta=sys.delta)
             return sys_out
 
         def idx2norm(idx):

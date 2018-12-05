@@ -143,7 +143,7 @@ class StateSpace(object):
         ad, bd, cd, dd = self.cofs
         az = (np.identity(self.n_order) + self.delta * ad)
         bz = self.delta * bd
-        return StateSpace((az, bz, cd, dd), dt=self.dt, delta=self.delta)
+        return StateSpace((az, bz, cd, dd), dt=self.dt)
 
     def is_asymtotically_stable(self):
         """

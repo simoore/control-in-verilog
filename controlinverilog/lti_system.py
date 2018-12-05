@@ -19,6 +19,10 @@ class LtiSystem(object):
         input_frac_length=14,
         cof_word_length=16,
         cof_frac_length=15,
+        state_word_length=24,
+        state_frac_length=14,
+        output_word_length=24,
+        output_frac_length=14,
         n_add=3,
         cof_threshold=0.001,
         sig_threshold=100,
@@ -87,6 +91,10 @@ class LtiSystem(object):
         sig_params['sig_scaling_method'] = sig_scaling_method
         sig_params['input_word_length'] = input_word_length
         sig_params['input_frac_length'] = input_frac_length
+        sig_params['state_word_length'] = state_word_length
+        sig_params['state_frac_length'] = state_frac_length
+        sig_params['output_word_length'] = output_word_length
+        sig_params['output_frac_length'] = output_frac_length
         sig_params['verbose'] = verbose
         sig_formats = LtiFormatsSignals(sysm, sig_params, cof_formats)
 
