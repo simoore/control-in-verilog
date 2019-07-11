@@ -27,11 +27,12 @@ def _hamiltonian_matrix_continuous(g, mat_a, mat_b, mat_c, mat_d):
 def _matrices_discrete(g, mat_a, mat_b, mat_c, mat_d):
     # A, B, C, D = sys.params
     n_order, n_input = mat_b.shape
+    n_output, _ = mat_c.shape
     mat_r = mat_d.T @ mat_d - g * g * np.identity(n_input)
     mat_r_inv = linalg.inv(mat_r)
     m11 = np.identity(n_order)
     m12 = np.zeros((n_order, n_order))
-    m21 = mat_c.T @ (np.identity(n_input) - mat_d @ mat_r_inv @ mat_d.T) @ mat_c
+    m21 = mat_c.T @ (np.identity(n_output) - mat_d @ mat_r_inv @ mat_d.T) @ mat_c
     m22 = -(mat_a + mat_b @ mat_r_inv @ mat_d.T @ mat_c).T
     m_mat = np.vstack((np.hstack((m11, m12)), np.hstack((m21, m22))))
     l11 = mat_a + mat_b @ mat_r_inv @ mat_d.T @ mat_c

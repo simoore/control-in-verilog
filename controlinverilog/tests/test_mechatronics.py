@@ -1,6 +1,7 @@
 import unittest
 import numpy as np
 from controlinverilog import mechatronics
+from controlinverilog.state_space import StateSpace
 import controlinverilog as civ
 import matplotlib.pyplot as plt
 
@@ -10,8 +11,8 @@ class TestLtiSystem(unittest.TestCase):
     def test_sequence(self):
         sys1 = get_system1()
 
-        norm_infc = mechatronics.norm_hinf_discrete(sys1)
-        norm_2c = mechatronics.norm_h2_discrete(sys1)
+        norm_infc = mechatronics.norm_hinf_discrete(*sys1.cofs)
+        norm_2c = mechatronics.norm_h2_discrete(*sys1.cofs[:3])
         self.assertTrue(abs(norm_infc - 12.9998) / 12.9998 < 0.01)
         self.assertTrue(abs(norm_2c - 1.3232) / 1.3232 < 0.01)
 
@@ -20,8 +21,8 @@ class TestLtiSystem(unittest.TestCase):
 
         sysa = get_system2()
 
-        norm_infc = mechatronics.norm_hinf_continuous(sysa)
-        norm_2c = mechatronics.norm_h2_continuous(sysa)
+        norm_infc = mechatronics.norm_hinf_continuous(*sysa.cofs)
+        norm_2c = mechatronics.norm_h2_continuous(*sysa.cofs[:3])
         self.assertTrue(abs(norm_infc - 0.9999) < 0.0001)
         self.assertTrue(abs(norm_2c - 75.1826) / 75.1826 < 0.0001)
 
@@ -30,8 +31,8 @@ class TestLtiSystem(unittest.TestCase):
 
         sysd = sysa.cont2shift(1 / 122.88e6)
 
-        norm_infc = mechatronics.norm_hinf_discrete(sysd)
-        norm_2c = mechatronics.norm_h2_discrete(sysd)
+        norm_infc = mechatronics.norm_hinf_discrete(*sysd.cofs)
+        norm_2c = mechatronics.norm_h2_discrete(*sysd.cofs[:3])
         self.assertTrue(abs(norm_infc - 0.9999) < 0.0001)
         self.assertTrue(abs(norm_2c - 0.00678229) / 0.00678229 < 0.0001)
 
@@ -40,7 +41,7 @@ class TestLtiSystem(unittest.TestCase):
 
     def test_gramians(self):
         sysa = get_system2()
-        A, B, C, D = sysa.params
+        A, B, C, D = sysa.cofs
         Wc = mechatronics.controllability_gramian_continuous(A, B)
         Wo = mechatronics.observability_gramian_continuous(A, C)
 
@@ -58,7 +59,7 @@ class TestLtiSystem(unittest.TestCase):
         self.assertTrue(np.all(np.isclose(cWo, Wo, rtol=1e-5)))
 
         sysd = sysa.cont2shift(1 / 122.88e6)
-        A, B, C, D = sysd.params
+        A, B, C, D = sysd.cofs
         Wc = mechatronics.controllability_gramian_discrete(A, B)
         Wo = mechatronics.observability_gramian_discrete(A, C)
 
@@ -85,7 +86,7 @@ class TestLtiSystem(unittest.TestCase):
         Bd = np.array([[-5.879e-07], [-7.271e-07], [4.579e-07], [1.632e-07]])
         Cd = np.array([[-72.24, 89.35, 56.26, -20.05]])
         Dd = np.array([[9.993e-12]])
-        A, B, C, D = sysd.params
+        A, B, C, D = sysd.cofs
         self.assertTrue(np.all(np.isclose(Ad, A, rtol=1e-3)))
         self.assertTrue(np.all(np.isclose(Bd, B, rtol=1e-3)))
         self.assertTrue(np.all(np.isclose(Cd, C, rtol=1e-3)))
@@ -98,7 +99,7 @@ def get_system1():
     C = np.array([[-0.4007, 0.325]])
     D = np.array([[0.01396]])
     dt = 1 / 30e3
-    sys = civ.StateSpace(A, B, C, D, dt=dt)
+    sys = StateSpace((A, B, C, D), dt=dt)
     return sys
 
 
@@ -111,15 +112,7 @@ def get_system2():
     B = np.array([[-72.2415], [-89.3518], [56.2813], [20.0667]])
     C = np.array([[-72.2415, 89.3518, 56.2813, -20.0667]])
     D = np.array([[0.0]])
-    return civ.StateSpace(A, B, C, D)
-
-
-def test_step_info():
-    t, y = mechatronics.step_response(sys, dt)
-    print(t[1] - t[0])
-    plt.plot(t, y)
-    ans = mechatronics.overshoot(sys, dt)
-    print(ans)
+    return StateSpace((A, B, C, D))
 
 
 if __name__ == '__main__':
