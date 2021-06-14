@@ -5,3 +5,4 @@ from .nonlinear_function import NonlinearFunction
 from .dds import DDS
 from .saturation import Saturation
 from .time_delay import TimeDelay
+from .synthesis import GAOptimizer

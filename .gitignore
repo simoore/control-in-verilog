@@ -1,6 +1,8 @@
 .idea/
 archive/
-notes.md
+*.aux
+*.pdf
+*.synctex.gz
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
