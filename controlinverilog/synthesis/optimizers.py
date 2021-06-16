@@ -82,20 +82,14 @@ class GAOptimizer(object):
         self.algorithm = lambda: algorithms.eaMuPlusLambda(*args, **kw3)
 
     def execute(self):
-        self.to_console_init()
+        print()
+        print(f'Number of Parameters: {self.ind_size}')
         tic = time()
         self.pop, self.log = self.algorithm()
         toc = time()
         self.exe_time = toc - tic
-        self.to_console_final(self.hof[0])
-
-    def to_console_init(self):
-        print()
-        print(f'Number of Parameters: {self.ind_size}')
-
-    def to_console_final(self, xopt):
         print()
         print('--- Solution Characteristics ---')
         if self.exe_time != 0:
             print('Time (s): %g' % (self.exe_time))
-        print(f'The optimal solution is: {xopt}')
+        print(f'The optimal solution is: {self.hof[0]}')
