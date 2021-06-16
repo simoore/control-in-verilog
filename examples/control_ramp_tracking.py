@@ -8,16 +8,6 @@ def ise(time, error):
     return integrate.trapz(error*error, time)
 
 def ramp_tracking_optimization_tuning_example():
-    """[1]H. Ali and S. Wadhwani, “Intelligent PID Controller Tuning for Higher Order Process System,” 
-    International Journal of u- and e-Service, Science and Technology, 
-    vol. 8, no. 6, pp. 323–330, Jun. 2015, doi: 10.14257/ijunesst.2015.8.6.32.
-
-    * The key to making these approaches run well is to simulate the system long enough such that steady state errors
-      cause significant increase in the cost function. 
-    * The ISE cost function still had a small steady state error in the optimal solution, thus I consider the ITSE cost 
-      function more suitable for reference tracking.   
-    * There is no measure of robustness in this routine so the resulting controllers may be unrealisitic.
-    """
     s = control.TransferFunction.s
     ratio = 0.1
     wn = 2*np.pi*50
