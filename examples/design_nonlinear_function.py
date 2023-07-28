@@ -5,7 +5,8 @@ nonlinear = civ.NonlinearFunction(
     name='example_nonlinear_function',
     func=func,
     input_word_length=11,
-    input_frac_length=13
+    input_frac_length=13,
+    output_frac_length=13
 )
 nonlinear.print_summary()
 nonlinear.print_verilog('example_nonlinear_function.v')
